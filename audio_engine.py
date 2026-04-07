@@ -318,83 +318,141 @@ class AudioEngine:
             n = int(all_devs[dev_idx][key])
             return min(n, CHANNELS) if n > 0 else CHANNELS
 
-        def _find_mme_equivalent(dev_idx, kind):
-            """Busca la versión MME del mismo dispositivo (siempre modo compartido)."""
+        def _find_mme(dev_idx, kind):
+            """Busca la versión MME del mismo dispositivo físico."""
             if dev_idx is None:
                 return None
-            original_name = all_devs[dev_idx]['name'].lower()[:24]  # MME trunca nombres
-            ch_key = 'max_input_channels' if kind == 'in' else 'max_output_channels'
-            mme_api_idx = next(
-                (i for i, a in enumerate(host_apis) if 'mme' in a['name'].lower()),
-                None
+            mme_idx = next(
+                (i for i, a in enumerate(host_apis) if 'mme' in a['name'].lower()), None
             )
-            if mme_api_idx is None:
+            if mme_idx is None:
                 return None
+            target = all_devs[dev_idx]['name'].lower()
+            ch_key = 'max_input_channels' if kind == 'in' else 'max_output_channels'
             for i, d in enumerate(all_devs):
-                if d['hostapi'] == mme_api_idx and int(d[ch_key]) > 0:
-                    if original_name[:16] in d['name'].lower() or \
-                       d['name'].lower()[:16] in original_name:
-                        return i
+                if d['hostapi'] != mme_idx:
+                    continue
+                if int(d[ch_key]) == 0:
+                    continue
+                dname = d['name'].lower()
+                # MME trunca nombres: comparar primeros 20 caracteres
+                if target[:20] in dname or dname[:20] in target:
+                    return i
             return None
 
         in_ch  = _ch(input_device,  'in')
         out_ch = _ch(output_device, 'out')
         last_err = None
 
-        # Intentos en orden:
-        # 1. WASAPI shared mode (explícito)
-        # 2. Dispositivos MME equivalentes (siempre compartido, más compatible)
-        # 3. Apertura directa con latency='high' (más permisivo)
-        attempts = []
-
-        # Intento 1: WASAPI shared mode
-        try:
-            wasapi_in  = sd.WasapiSettings(exclusive=False) if input_device  is not None else None
-            wasapi_out = sd.WasapiSettings(exclusive=False) if output_device is not None else None
-            attempts.append(('WASAPI shared', input_device, output_device, in_ch, out_ch,
-                              wasapi_in, wasapi_out, 'low'))
-        except AttributeError:
-            pass  # WasapiSettings no disponible en esta versión de sounddevice
-
-        # Intento 2: MME equivalente (siempre comparte el dispositivo)
-        mme_in  = _find_mme_equivalent(input_device,  'in')
-        mme_out = _find_mme_equivalent(output_device, 'out')
-        if mme_in is not None or mme_out is not None:
-            mi = mme_in  if mme_in  is not None else input_device
-            mo = mme_out if mme_out is not None else output_device
-            attempts.append(('MME', mi, mo, _ch(mi, 'in'), _ch(mo, 'out'), None, None, 'high'))
-
-        # Intento 3: directo, latencia alta (última opción)
-        attempts.append(('Direct/high-latency', input_device, output_device,
-                          in_ch, out_ch, None, None, 'high'))
-
-        for label, i_dev, o_dev, i_ch, o_ch, ex_in, ex_out, lat in attempts:
+        # ── Intento 1 & 2: stream duplex combinado (WASAPI shared — sin extra_settings)
+        # NOTA: sounddevice usa WASAPI shared por defecto en Windows.
+        #       NO pasar extra_settings evita el error -9984 "Incompatible host API".
+        for lat in ('low', 'high'):
             try:
-                kwargs = dict(
+                self.stream = sd.Stream(
                     samplerate=SAMPLE_RATE,
                     blocksize=BLOCK_SIZE,
                     dtype=np.float32,
-                    channels=(max(i_ch, 1), max(o_ch, 1)),
-                    device=(i_dev, o_dev),
+                    channels=(max(in_ch, 1), max(out_ch, 1)),
+                    device=(input_device, output_device),
                     callback=self.audio_callback,
                     latency=lat,
                 )
-                if ex_in is not None or ex_out is not None:
-                    kwargs['extra_settings'] = (ex_in, ex_out)
-
-                self.stream = sd.Stream(**kwargs)
                 self.stream.start()
-
                 if self.on_status_update:
                     self.on_status_update(
-                        f"🎮 Audio engine activo  [{i_ch}ch → {o_ch}ch]  // modo: {label}")
+                        f"🎮 Audio engine activo  [{in_ch}ch → {out_ch}ch]  // modo: WASAPI shared ({lat})")
                 return True, None
-
             except Exception as e:
                 last_err = str(e)
                 if self.on_status_update:
-                    self.on_status_update(f"⚠ [{label}] falló: {last_err} — probando siguiente...")
-                continue
+                    self.on_status_update(
+                        f"⚠ [WASAPI {lat}] falló: {last_err} — probando siguiente...")
+
+        # ── Intento 3: MME equivalente
+        mme_in  = _find_mme(input_device,  'in')
+        mme_out = _find_mme(output_device, 'out')
+        if mme_in is not None or mme_out is not None:
+            mi = mme_in  if mme_in  is not None else input_device
+            mo = mme_out if mme_out is not None else output_device
+            try:
+                self.stream = sd.Stream(
+                    samplerate=SAMPLE_RATE,
+                    blocksize=BLOCK_SIZE,
+                    dtype=np.float32,
+                    channels=(max(_ch(mi, 'in'), 1), max(_ch(mo, 'out'), 1)),
+                    device=(mi, mo),
+                    callback=self.audio_callback,
+                    latency='high',
+                )
+                self.stream.start()
+                if self.on_status_update:
+                    self.on_status_update(
+                        f"🎮 Audio engine activo  [{in_ch}ch → {out_ch}ch]  // modo: MME")
+                return True, None
+            except Exception as e:
+                last_err = str(e)
+                if self.on_status_update:
+                    self.on_status_update(f"⚠ [MME] falló: {last_err} — probando streams separados...")
+
+        # ── Intento 4: streams separados (input y output en APIs independientes)
+        # Esto permite, por ejemplo, entrada desde Voicemeter VAIO y salida
+        # por auriculares WASAPI sin conflicto de host API.
+        try:
+            _out_buf = queue.Queue(maxsize=32)
+
+            def _separate_in_cb(indata, frames, time_info, status):
+                try:
+                    audio = indata.copy()
+                    processed = self.process_audio(audio, self.last_prediction)
+                    # Ajustar canales si difieren
+                    if processed.shape[1] != out_ch:
+                        if processed.shape[1] > out_ch:
+                            processed = processed[:, :out_ch]
+                        else:
+                            processed = np.pad(processed, ((0, 0), (0, out_ch - processed.shape[1])))
+                    try:
+                        _out_buf.put_nowait(processed)
+                    except queue.Full:
+                        pass
+                    level = float(np.sqrt(np.mean(audio ** 2)))
+                    if self.on_level_update:
+                        self.on_level_update(level)
+                    try:
+                        self._analysis_queue.put_nowait(audio)
+                    except queue.Full:
+                        pass
+                except Exception:
+                    pass
+
+            def _separate_out_cb(outdata, frames, time_info, status):
+                try:
+                    buf = _out_buf.get_nowait()
+                    outdata[:] = buf
+                except queue.Empty:
+                    outdata[:] = 0
+
+            self._in_stream  = sd.InputStream(
+                samplerate=SAMPLE_RATE, blocksize=BLOCK_SIZE, dtype=np.float32,
+                channels=max(in_ch, 1), device=input_device,
+                callback=_separate_in_cb, latency='high',
+            )
+            self._out_stream = sd.OutputStream(
+                samplerate=SAMPLE_RATE, blocksize=BLOCK_SIZE, dtype=np.float32,
+                channels=max(out_ch, 1), device=output_device,
+                callback=_separate_out_cb, latency='high',
+            )
+            self._in_stream.start()
+            self._out_stream.start()
+            self.stream = None  # no hay stream combinado
+            if self.on_status_update:
+                self.on_status_update(
+                    f"🎮 Audio engine activo  [{in_ch}ch → {out_ch}ch]  // modo: streams separados")
+            return True, None
+        except Exception as e:
+            last_err = str(e)
+            if self.on_status_update:
+                self.on_status_update(f"⚠ [streams separados] falló: {last_err}")
 
         # Todos los intentos fallaron
         self.running = False
@@ -407,9 +465,23 @@ class AudioEngine:
         self.running = False
         if self._analysis_thread and self._analysis_thread.is_alive():
             self._analysis_thread.join(timeout=1.0)
-        if hasattr(self, 'stream'):
-            self.stream.stop()
-            self.stream.close()
+        # stream combinado
+        if hasattr(self, 'stream') and self.stream is not None:
+            try:
+                self.stream.stop()
+                self.stream.close()
+            except Exception:
+                pass
+        # streams separados (fallback modo Voicemeeter)
+        for attr in ('_in_stream', '_out_stream'):
+            s = getattr(self, attr, None)
+            if s is not None:
+                try:
+                    s.stop()
+                    s.close()
+                except Exception:
+                    pass
+                setattr(self, attr, None)
     
     def set_training_mode(self, active, label=None):
         self.training_mode = active
@@ -460,19 +532,51 @@ class AudioEngine:
 
 # ─── Utilidades ──────────────────────────────────────────────────────────────
 def list_audio_devices():
-    """Lista todos los dispositivos de audio disponibles."""
+    """
+    Lista dispositivos de audio filtrando por WASAPI (un entry por dispositivo físico).
+    Los dispositivos virtuales (Voicemeter, VB-Cable) siempre se incluyen.
+    """
     devices   = sd.query_devices()
     host_apis = sd.query_hostapis()
-    result    = []
+
+    # Índice del host API WASAPI en este sistema
+    wasapi_idx = next(
+        (i for i, a in enumerate(host_apis) if 'wasapi' in a['name'].lower()), None
+    )
+
+    VIRTUAL_KEYWORDS = ('voicemeeter', 'vb-audio', 'vb audio', 'cable', 'virtual',
+                        'blackhole', 'loopback', 'soundflower')
+
+    def _is_virtual(name):
+        nl = name.lower()
+        return any(k in nl for k in VIRTUAL_KEYWORDS)
+
+    result = []
     for i, d in enumerate(devices):
         api_name = host_apis[d['hostapi']]['name'] if d['hostapi'] < len(host_apis) else ''
+        is_wasapi  = (d['hostapi'] == wasapi_idx)
+        is_virtual = _is_virtual(d['name'])
+
+        # Mostrar solo WASAPI o virtuales de cualquier API
+        if not is_wasapi and not is_virtual:
+            continue
+
+        # Ignorar dispositivos sin canales útiles
+        if d['max_input_channels'] == 0 and d['max_output_channels'] == 0:
+            continue
+
+        display_name = d['name']
+        if is_virtual and not is_wasapi:
+            display_name = f"{d['name']}  [MME]"
+
         result.append({
-            'id':       i,
-            'name':     d['name'],
-            'inputs':   d['max_input_channels'],
-            'outputs':  d['max_output_channels'],
+            'id':         i,
+            'name':       display_name,
+            'inputs':     d['max_input_channels'],
+            'outputs':    d['max_output_channels'],
             'default_sr': int(d['default_samplerate']),
-            'host_api': api_name,
+            'host_api':   api_name,
+            'virtual':    is_virtual,
         })
     return result
 

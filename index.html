@@ -1031,7 +1031,7 @@ async function startEngine() {
       if (err.toLowerCase().includes('channel')) {
         log('[TIP] El dispositivo no soporta ese número de canales. Prueba otro output.', 'warn');
       } else if (err.toLowerCase().includes('invalid') || err.toLowerCase().includes('unavailable') || err.includes('-9985')) {
-        log('[TIP] Dispositivo ocupado. El motor intentó WASAPI shared y MME automáticamente. Prueba cerrar el software de audio (GoXLR, Voicemeter) y volver a intentar, o selecciona la versión MME del mismo dispositivo en el dropdown.', 'warn');
+        log('[TIP] Dispositivo ocupado. Prueba seleccionar la salida virtual de Voicemeter (VoiceMeeter Output / VAIO) como Input, o cierra otras apps que bloqueen el dispositivo (GoXLR, etc.).', 'warn');
       } else if (err.toLowerCase().includes('sample') || err.toLowerCase().includes('rate')) {
         log('[TIP] Sample rate incompatible. El dispositivo puede no soportar 44100 Hz.', 'warn');
       }

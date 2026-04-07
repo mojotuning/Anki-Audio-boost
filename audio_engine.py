@@ -309,11 +309,27 @@ class AudioEngine:
         self._analysis_thread.start()
 
         try:
+            # Detectar canales disponibles en cada dispositivo
+            all_devs = sd.query_devices()
+            def _ch(dev_idx, kind):
+                if dev_idx is None:
+                    return CHANNELS
+                key = 'max_input_channels' if kind == 'in' else 'max_output_channels'
+                n = int(all_devs[dev_idx][key])
+                return min(n, CHANNELS) if n > 0 else CHANNELS
+
+            in_ch  = _ch(input_device,  'in')
+            out_ch = _ch(output_device, 'out')
+            # SPDIF y algunos dispositivos USB solo soportan 2ch — usar el mínimo común
+            use_ch = min(in_ch, out_ch, CHANNELS)
+            if use_ch < 1:
+                use_ch = 1
+
             self.stream = sd.Stream(
                 samplerate=SAMPLE_RATE,
                 blocksize=BLOCK_SIZE,
                 dtype=np.float32,
-                channels=CHANNELS,
+                channels=(in_ch, out_ch),
                 device=(input_device, output_device),
                 callback=self.audio_callback,
                 latency='low'
@@ -321,14 +337,15 @@ class AudioEngine:
             self.stream.start()
 
             if self.on_status_update:
-                self.on_status_update("🎮 Audio engine activo")
+                self.on_status_update(f"🎮 Audio engine activo  [{in_ch}ch → {out_ch}ch]")
 
-            return True
+            return True, None
         except Exception as e:
             self.running = False
+            err = str(e)
             if self.on_status_update:
-                self.on_status_update(f"❌ Error: {e}")
-            return False
+                self.on_status_update(f"❌ Error: {err}")
+            return False, err
     
     def stop(self):
         """Detiene el procesamiento."""
@@ -389,15 +406,18 @@ class AudioEngine:
 # ─── Utilidades ──────────────────────────────────────────────────────────────
 def list_audio_devices():
     """Lista todos los dispositivos de audio disponibles."""
-    devices = sd.query_devices()
-    result = []
+    devices   = sd.query_devices()
+    host_apis = sd.query_hostapis()
+    result    = []
     for i, d in enumerate(devices):
+        api_name = host_apis[d['hostapi']]['name'] if d['hostapi'] < len(host_apis) else ''
         result.append({
-            "id": i,
-            "name": d['name'],
-            "inputs": d['max_input_channels'],
-            "outputs": d['max_output_channels'],
-            "default_sr": d['default_samplerate']
+            'id':       i,
+            'name':     d['name'],
+            'inputs':   d['max_input_channels'],
+            'outputs':  d['max_output_channels'],
+            'default_sr': int(d['default_samplerate']),
+            'host_api': api_name,
         })
     return result
 

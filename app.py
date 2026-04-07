@@ -68,8 +68,8 @@ class Api:
     def start_engine(self, input_device=None, output_device=None):
         inp = int(input_device) if input_device is not None else None
         out = int(output_device) if output_device is not None else None
-        success = engine.start(input_device=inp, output_device=out)
-        return {'success': success, 'running': engine.running}
+        success, err = engine.start(input_device=inp, output_device=out)
+        return {'success': success, 'running': engine.running, 'error': err}
 
     def stop_engine(self):
         engine.stop()

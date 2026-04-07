@@ -611,6 +611,10 @@
         <label style="font-size:12px;letter-spacing:1px;color:var(--textdim);font-family:'Share Tech Mono',monospace;display:block;margin-bottom:4px">OUTPUT (Auriculares)</label>
         <select id="outputDevice"><option value="">Cargando...</option></select>
 
+        <div id="sameDevWarn" style="display:none;font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--yellow);border:1px solid #664400;padding:8px 10px;margin-top:8px;letter-spacing:1px">
+          [!] INPUT y OUTPUT son el mismo dispositivo.<br>Esto causará estática / feedback. Selecciona dispositivos distintos.
+        </div>
+
         <div class="btn-row" style="margin-top:12px">
           <button class="btn btn-green" id="startBtn" onclick="startEngine()">▶ ACTIVAR</button>
           <button class="btn btn-red"   id="stopBtn"  onclick="stopEngine()" disabled>■ DETENER</button>
@@ -927,9 +931,29 @@ async function loadDevices() {
     out.innerHTML = '<option value="">-- Selecciona output --</option>';
 
     devs.forEach(d => {
-      if (d.inputs  > 0) inp.innerHTML += `<option value="${d.id}">[${d.id}] ${d.name}</option>`;
-      if (d.outputs > 0) out.innerHTML += `<option value="${d.id}">[${d.id}] ${d.name}</option>`;
+      const api   = d.host_api ? ` — ${d.host_api}` : '';
+      if (d.inputs  > 0) {
+        const label = `[${d.id}] ${d.name}  (${d.inputs}ch IN${api})`;
+        inp.innerHTML += `<option value="${d.id}">${label}</option>`;
+      }
+      if (d.outputs > 0) {
+        const label = `[${d.id}] ${d.name}  (${d.outputs}ch OUT${api})`;
+        out.innerHTML += `<option value="${d.id}">${label}</option>`;
+      }
     });
+
+    // Advertir si se elige el mismo dispositivo en ambos selectores
+    [inp, out].forEach(sel => {
+      sel.addEventListener('change', () => {
+        const warn = document.getElementById('sameDevWarn');
+        if (inp.value && out.value && inp.value === out.value) {
+          warn.style.display = 'block';
+        } else {
+          warn.style.display = 'none';
+        }
+      });
+    });
+
     log(`${devs.length} dispositivos detectados`, 'ok');
   } catch(e) {
     log('Error cargando dispositivos: ' + e, 'err');
@@ -990,6 +1014,10 @@ async function startEngine() {
   if (!input || !output) {
     log('Selecciona input y output primero', 'warn'); return;
   }
+  if (input === output) {
+    log('[!] INPUT y OUTPUT son el mismo dispositivo — esto causa estática. Selecciona dispositivos distintos.', 'warn');
+    return;
+  }
 
   try {
     const d = await window.pywebview.api.start_engine(parseInt(input), parseInt(output));
@@ -998,7 +1026,15 @@ async function startEngine() {
       setRunningState(true);
       log('Motor de audio ACTIVO', 'ok');
     } else {
-      log('No se pudo iniciar el motor', 'err');
+      const err = d.error || 'Error desconocido';
+      log(`[ERROR] ${err}`, 'err');
+      if (err.toLowerCase().includes('channel')) {
+        log('[TIP] El dispositivo no soporta ese número de canales. Prueba otro output.', 'warn');
+      } else if (err.toLowerCase().includes('invalid') || err.toLowerCase().includes('unavailable')) {
+        log('[TIP] Dispositivo no disponible — puede estar en modo exclusivo o en uso por otra app.', 'warn');
+      } else if (err.toLowerCase().includes('sample') || err.toLowerCase().includes('rate')) {
+        log('[TIP] Sample rate incompatible. El dispositivo puede no soportar 44100 Hz.', 'warn');
+      }
     }
   } catch(e) {
     log('Error: ' + e, 'err');

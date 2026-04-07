@@ -252,12 +252,6 @@ def _on_closing():
 def _webview2_available():
     """Comprueba si WebView2 Runtime está instalado en el sistema."""
     try:
-        import ctypes
-        ctypes.windll.WebView2Loader  # type: ignore
-        return True
-    except Exception:
-        pass
-    try:
         import winreg
         for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
             for path in (
@@ -274,7 +268,95 @@ def _webview2_available():
     return False
 
 
+def _ensure_webview2():
+    """
+    Si WebView2 Runtime no está instalado, lo descarga e instala automáticamente.
+    Muestra un diálogo nativo de Windows — sin necesidad de tkinter.
+    Llama a esta función ANTES de crear la ventana de pywebview.
+    """
+    if _webview2_available():
+        return  # Ya está instalado, nada que hacer
+
+    import ctypes, urllib.request, ssl, tempfile, subprocess
+
+    MB_YESNO        = 0x04
+    MB_ICONQUESTION = 0x20
+    MB_OK           = 0x00
+    MB_ICONINFO     = 0x40
+    MB_ICONERROR    = 0x10
+    IDYES           = 6
+    box = ctypes.windll.user32.MessageBoxW
+
+    # Pedir confirmación al usuario
+    r = box(
+        0,
+        "Warzone Audio Enhancer necesita instalar\n"
+        "Microsoft WebView2 Runtime para funcionar.\n\n"
+        "• Componente oficial de Microsoft (gratuito)\n"
+        "• Se instala automáticamente — solo una vez\n"
+        "• Puede tardar 1-2 minutos\n\n"
+        "¿Instalar ahora?",
+        "Warzone Audio Enhancer — Componente requerido",
+        MB_YESNO | MB_ICONQUESTION
+    )
+    if r != IDYES:
+        sys.exit(0)
+
+    try:
+        # Construir contexto SSL
+        try:
+            import certifi
+            ctx = ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            ctx = ssl.create_default_context()
+
+        # Descargar el bootstrapper oficial de Microsoft (~2 MB)
+        tmp_installer = tempfile.mktemp(suffix='.exe', prefix='wze_wv2_')
+        wv2_url = 'https://go.microsoft.com/fwlink/p/?LinkId=2124703'
+        req = urllib.request.Request(wv2_url, headers={'User-Agent': 'WarzoneAudioEnhancer'})
+        with urllib.request.urlopen(req, timeout=120, context=ctx) as resp:
+            with open(tmp_installer, 'wb') as f:
+                f.write(resp.read())
+
+        # Instalar silenciosamente (sin ventanas ni confirmaciones)
+        subprocess.run(
+            [tmp_installer, '/silent', '/install'],
+            check=True,
+            timeout=300,
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
+        )
+
+        try:
+            os.remove(tmp_installer)
+        except Exception:
+            pass
+
+        # Confirmar y reiniciar el programa
+        box(
+            0,
+            "✓ Instalación completada.\n\nEl programa se reiniciará ahora.",
+            "Warzone Audio Enhancer",
+            MB_OK | MB_ICONINFO
+        )
+        exe = sys.executable
+        subprocess.Popen([exe] + sys.argv[1:])
+        os._exit(0)
+
+    except Exception as exc:
+        box(
+            0,
+            f"Error durante la instalación automática:\n{exc}\n\n"
+            "Instala manualmente desde:\nhttps://aka.ms/webview2",
+            "Warzone Audio Enhancer — Error",
+            MB_OK | MB_ICONERROR
+        )
+        sys.exit(1)
+
+
 if __name__ == '__main__':
+    # Instalar WebView2 automáticamente si no está presente
+    _ensure_webview2()
+
     api = Api()
     _window = webview.create_window(
         title='Warzone Audio Enhancer',
@@ -288,13 +370,4 @@ if __name__ == '__main__':
         zoomable=False,
     )
     _window.events.closing += _on_closing
-
-    # Si WebView2 no está disponible, usar mshtml (IE) como fallback
-    if _webview2_available():
-        webview.start(http_server=True, debug=False)
-    else:
-        # mshtml no soporta http_server — servir el html directamente como file://
-        try:
-            webview.start(gui='mshtml', debug=False)
-        except Exception:
-            webview.start(debug=False)  # último intento sin gui forzado
+    webview.start(http_server=True, debug=False)

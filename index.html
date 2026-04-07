@@ -1273,13 +1273,6 @@ window.addEventListener('pywebviewready', async () => {
   scanCompatibility();
   pollStatus();
   setInterval(pollStatus, 5000);
-  // Verificar WebView2
-  try {
-    const wv = await window.pywebview.api.check_webview2();
-    if (!wv.available) {
-      log('[!] Microsoft WebView2 Runtime no detectado. Para mejor compatibilidad instálalo desde: aka.ms/webview2', 'warn');
-    }
-  } catch(e) {}
 });
 </script>
 </body>

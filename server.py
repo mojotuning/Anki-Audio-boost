@@ -10,7 +10,6 @@ import threading
 import time
 import sys
 import os
-import webbrowser
 
 sys.path.insert(0, os.path.dirname(__file__))
 from audio_engine import AudioEngine, list_audio_devices, detect_audio_software
@@ -130,11 +129,35 @@ def software_scan():
 
 
 if __name__ == '__main__':
-    print("🎮 Warzone Audio Server iniciando en http://localhost:5000")
+    # ── Modo ventana de escritorio (pywebview) ──────────────────────────────
+    # Si se pasa --no-gui se usa el navegador normal (útil para desarrollo)
+    no_gui = '--no-gui' in sys.argv
 
-    def _open_browser():
-        time.sleep(1.5)
-        webbrowser.open('http://localhost:5000')
+    def _run_flask():
+        socketio.run(app, host='127.0.0.1', port=5000,
+                     debug=False, use_reloader=False)
 
-    threading.Thread(target=_open_browser, daemon=True).start()
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+    flask_thread = threading.Thread(target=_run_flask, daemon=True)
+    flask_thread.start()
+
+    if no_gui:
+        import webbrowser
+        print("🎮 Warzone Audio Server en http://localhost:5000")
+        time.sleep(1)
+        webbrowser.open('http://127.0.0.1:5000')
+        # Mantener el proceso vivo
+        flask_thread.join()
+    else:
+        import webview
+        time.sleep(1.2)  # esperar que Flask arranque
+        window = webview.create_window(
+            title='Warzone Audio Enhancer',
+            url='http://127.0.0.1:5000',
+            width=1140,
+            height=860,
+            min_size=(900, 650),
+            background_color='#050a08',
+            text_select=False,
+            zoomable=False,
+        )
+        webview.start(debug=False)

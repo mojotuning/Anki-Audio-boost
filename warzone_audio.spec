@@ -13,6 +13,13 @@ a = Analysis(
         ('index.html', '.'),
     ],
     hiddenimports=[
+        # pywebview (ventana de escritorio)
+        'webview',
+        'webview.platforms',
+        'webview.platforms.winforms',
+        'webview.platforms.edgechromium',
+        'webview.platforms.mshtml',
+        'clr',
         # Flask & SocketIO
         'flask',
         'flask_cors',
@@ -96,8 +103,8 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    # console=True para ver mensajes de error; cambiar a False para sin ventana negra
-    console=True,
+    # console=False para que no aparezca ventana negra de terminal
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

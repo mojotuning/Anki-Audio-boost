@@ -308,44 +308,99 @@ class AudioEngine:
             target=self._analysis_worker, daemon=True)
         self._analysis_thread.start()
 
-        try:
-            # Detectar canales disponibles en cada dispositivo
-            all_devs = sd.query_devices()
-            def _ch(dev_idx, kind):
-                if dev_idx is None:
-                    return CHANNELS
-                key = 'max_input_channels' if kind == 'in' else 'max_output_channels'
-                n = int(all_devs[dev_idx][key])
-                return min(n, CHANNELS) if n > 0 else CHANNELS
+        all_devs  = sd.query_devices()
+        host_apis = sd.query_hostapis()
 
-            in_ch  = _ch(input_device,  'in')
-            out_ch = _ch(output_device, 'out')
-            # SPDIF y algunos dispositivos USB solo soportan 2ch — usar el mínimo común
-            use_ch = min(in_ch, out_ch, CHANNELS)
-            if use_ch < 1:
-                use_ch = 1
+        def _ch(dev_idx, kind):
+            if dev_idx is None:
+                return CHANNELS
+            key = 'max_input_channels' if kind == 'in' else 'max_output_channels'
+            n = int(all_devs[dev_idx][key])
+            return min(n, CHANNELS) if n > 0 else CHANNELS
 
-            self.stream = sd.Stream(
-                samplerate=SAMPLE_RATE,
-                blocksize=BLOCK_SIZE,
-                dtype=np.float32,
-                channels=(in_ch, out_ch),
-                device=(input_device, output_device),
-                callback=self.audio_callback,
-                latency='low'
+        def _find_mme_equivalent(dev_idx, kind):
+            """Busca la versión MME del mismo dispositivo (siempre modo compartido)."""
+            if dev_idx is None:
+                return None
+            original_name = all_devs[dev_idx]['name'].lower()[:24]  # MME trunca nombres
+            ch_key = 'max_input_channels' if kind == 'in' else 'max_output_channels'
+            mme_api_idx = next(
+                (i for i, a in enumerate(host_apis) if 'mme' in a['name'].lower()),
+                None
             )
-            self.stream.start()
+            if mme_api_idx is None:
+                return None
+            for i, d in enumerate(all_devs):
+                if d['hostapi'] == mme_api_idx and int(d[ch_key]) > 0:
+                    if original_name[:16] in d['name'].lower() or \
+                       d['name'].lower()[:16] in original_name:
+                        return i
+            return None
 
-            if self.on_status_update:
-                self.on_status_update(f"🎮 Audio engine activo  [{in_ch}ch → {out_ch}ch]")
+        in_ch  = _ch(input_device,  'in')
+        out_ch = _ch(output_device, 'out')
+        last_err = None
 
-            return True, None
-        except Exception as e:
-            self.running = False
-            err = str(e)
-            if self.on_status_update:
-                self.on_status_update(f"❌ Error: {err}")
-            return False, err
+        # Intentos en orden:
+        # 1. WASAPI shared mode (explícito)
+        # 2. Dispositivos MME equivalentes (siempre compartido, más compatible)
+        # 3. Apertura directa con latency='high' (más permisivo)
+        attempts = []
+
+        # Intento 1: WASAPI shared mode
+        try:
+            wasapi_in  = sd.WasapiSettings(exclusive=False) if input_device  is not None else None
+            wasapi_out = sd.WasapiSettings(exclusive=False) if output_device is not None else None
+            attempts.append(('WASAPI shared', input_device, output_device, in_ch, out_ch,
+                              wasapi_in, wasapi_out, 'low'))
+        except AttributeError:
+            pass  # WasapiSettings no disponible en esta versión de sounddevice
+
+        # Intento 2: MME equivalente (siempre comparte el dispositivo)
+        mme_in  = _find_mme_equivalent(input_device,  'in')
+        mme_out = _find_mme_equivalent(output_device, 'out')
+        if mme_in is not None or mme_out is not None:
+            mi = mme_in  if mme_in  is not None else input_device
+            mo = mme_out if mme_out is not None else output_device
+            attempts.append(('MME', mi, mo, _ch(mi, 'in'), _ch(mo, 'out'), None, None, 'high'))
+
+        # Intento 3: directo, latencia alta (última opción)
+        attempts.append(('Direct/high-latency', input_device, output_device,
+                          in_ch, out_ch, None, None, 'high'))
+
+        for label, i_dev, o_dev, i_ch, o_ch, ex_in, ex_out, lat in attempts:
+            try:
+                kwargs = dict(
+                    samplerate=SAMPLE_RATE,
+                    blocksize=BLOCK_SIZE,
+                    dtype=np.float32,
+                    channels=(max(i_ch, 1), max(o_ch, 1)),
+                    device=(i_dev, o_dev),
+                    callback=self.audio_callback,
+                    latency=lat,
+                )
+                if ex_in is not None or ex_out is not None:
+                    kwargs['extra_settings'] = (ex_in, ex_out)
+
+                self.stream = sd.Stream(**kwargs)
+                self.stream.start()
+
+                if self.on_status_update:
+                    self.on_status_update(
+                        f"🎮 Audio engine activo  [{i_ch}ch → {o_ch}ch]  // modo: {label}")
+                return True, None
+
+            except Exception as e:
+                last_err = str(e)
+                if self.on_status_update:
+                    self.on_status_update(f"⚠ [{label}] falló: {last_err} — probando siguiente...")
+                continue
+
+        # Todos los intentos fallaron
+        self.running = False
+        if self.on_status_update:
+            self.on_status_update(f"❌ No se pudo abrir el dispositivo: {last_err}")
+        return False, last_err
     
     def stop(self):
         """Detiene el procesamiento."""

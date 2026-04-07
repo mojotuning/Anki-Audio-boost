@@ -932,56 +932,50 @@ async function loadDevices() {
     const devs = await window.pywebview.api.get_devices();
     const inp = document.getElementById('inputDevice');
     const out = document.getElementById('outputDevice');
-    inp.innerHTML = '<option value="">-- Selecciona input --</option>';
-    out.innerHTML = '<option value="">-- Selecciona output --</option>';
 
-    // Voicemeeter virtual inputs primero en el output dropdown
-    const vmOuts   = devs.filter(d => d.vm_out   && d.outputs > 0);
-    const otherOut = devs.filter(d => !d.vm_out  && d.outputs > 0);
-
-    if (vmOuts.length > 0) {
-      out.innerHTML += `<optgroup label="★ Recomendado — Voicemeeter Virtual Input">`;
-      vmOuts.forEach(d => {
-        out.innerHTML += `<option value="${d.id}">★ ${d.name}</option>`;
-      });
-      out.innerHTML += `</optgroup>`;
-      out.innerHTML += `<optgroup label="Otros dispositivos">`;
-      otherOut.forEach(d => {
-        out.innerHTML += `<option value="${d.id}">${d.name}  (${d.outputs}ch)</option>`;
-      });
-      out.innerHTML += `</optgroup>`;
-    } else {
-      otherOut.forEach(d => {
-        out.innerHTML += `<option value="${d.id}">${d.name}  (${d.outputs}ch)</option>`;
-      });
-    }
-
+    // ── Build INPUT options ────────────────────────────────────────────────
+    let inHtml = '<option value="">-- Selecciona input --</option>';
     devs.forEach(d => {
       if (d.inputs > 0) {
-        const loopTag = d.loopback ? ' 🔁' : '';
-        const label = `${d.name}${loopTag}  (${d.inputs}ch IN)`;
-        inp.innerHTML += `<option value="${d.id}">${label}</option>`;
+        const tag = d.loopback ? ' [LOOPBACK]' : '';
+        inHtml += `<option value="${d.id}">${d.name}${tag}</option>`;
       }
     });
+    inp.innerHTML = inHtml;
 
-    // Advertir si se elige hardware físico como output (Voicemeeter lo tiene en exclusivo)
-    const hwWarn = document.getElementById('hwOutWarn');
+    // ── Build OUTPUT options (Voicemeeter virtual inputs primero) ──────────
+    const vmOuts   = devs.filter(d => d.outputs > 0 && d.vm_out);
+    const otherOut = devs.filter(d => d.outputs > 0 && !d.vm_out);
+
+    let outHtml = '<option value="">-- Selecciona output --</option>';
+    if (vmOuts.length > 0) {
+      outHtml += '<optgroup label="★ RECOMENDADO — entra a Voicemeeter">';
+      vmOuts.forEach(d => {
+        outHtml += `<option value="${d.id}">★ ${d.name}</option>`;
+      });
+      outHtml += '</optgroup>';
+    }
+    if (otherOut.length > 0) {
+      outHtml += '<optgroup label="Otros dispositivos">';
+      otherOut.forEach(d => {
+        outHtml += `<option value="${d.id}">${d.name}</option>`;
+      });
+      outHtml += '</optgroup>';
+    }
+    out.innerHTML = outHtml;
+
+    // ── Advertir si output es hardware físico ─────────────────────────────
+    const hwWarn   = document.getElementById('hwOutWarn');
+    const sameWarn = document.getElementById('sameDevWarn');
     out.addEventListener('change', () => {
       const sel = devs.find(d => String(d.id) === out.value);
-      if (hwWarn) hwWarn.style.display = (sel && sel.hardware) ? 'block' : 'none';
+      if (hwWarn) hwWarn.style.display = (sel && sel.hardware && !sel.virtual) ? 'block' : 'none';
+      const inputBase = inp.value.startsWith('L') ? inp.value.slice(1) : inp.value;
+      if (sameWarn) sameWarn.style.display = (inputBase && out.value && inputBase === out.value) ? 'block' : 'none';
     });
-
-    // Advertir si se elige el mismo dispositivo en ambos selectores
-    [inp, out].forEach(sel => {
-      sel.addEventListener('change', () => {
-        const warn = document.getElementById('sameDevWarn');
-        const inputBase = inp.value.startsWith('L') ? inp.value.slice(1) : inp.value;
-        if (inputBase && out.value && inputBase === out.value) {
-          warn.style.display = 'block';
-        } else {
-          warn.style.display = 'none';
-        }
-      });
+    inp.addEventListener('change', () => {
+      const inputBase = inp.value.startsWith('L') ? inp.value.slice(1) : inp.value;
+      if (sameWarn) sameWarn.style.display = (inputBase && out.value && inputBase === out.value) ? 'block' : 'none';
     });
 
     log(`${devs.length} dispositivos detectados`, 'ok');

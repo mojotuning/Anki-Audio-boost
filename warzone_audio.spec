@@ -2,6 +2,8 @@
 # PyInstaller spec para Warzone Audio Enhancer
 # Genera: dist/WarzoneAudioEnhancer.exe
 
+import certifi
+
 block_cipher = None
 
 a = Analysis(
@@ -11,8 +13,8 @@ a = Analysis(
     datas=[
         # Empaquetar la interfaz web dentro del .exe
         ('index.html', '.'),
-        # Certificados SSL para urllib (check_for_updates)
-        ('.venv/Lib/site-packages/certifi/cacert.pem', 'certifi'),
+        # Certificados SSL para urllib (check_for_updates) — ruta dinámica
+        (certifi.where(), 'certifi'),
     ],
     hiddenimports=[
         # pywebview (ventana de escritorio)

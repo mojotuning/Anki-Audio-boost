@@ -112,6 +112,45 @@ class Api:
         mine, enemy = engine.get_sample_count()
         return {'mine': mine, 'enemy': enemy}
 
+    def get_version(self):
+        return {'version': VERSION}
+
+    def check_for_updates(self):
+        import urllib.request, json as _json
+        try:
+            url = 'https://api.github.com/repos/mojotuning/Anki-Audio-boost/releases/latest'
+            req = urllib.request.Request(url, headers={'User-Agent': 'WarzoneAudioEnhancer'})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = _json.loads(resp.read().decode())
+            latest = data.get('tag_name', '').lstrip('v')
+            release_url = data.get('html_url', 'https://github.com/mojotuning/Anki-Audio-boost/releases')
+            exe_url = release_url
+            for asset in data.get('assets', []):
+                if asset.get('name', '').endswith('.exe'):
+                    exe_url = asset['browser_download_url']
+                    break
+            def _ver_tuple(v):
+                try:
+                    return tuple(int(x) for x in v.split('.'))
+                except Exception:
+                    return (0,)
+            up_to_date = _ver_tuple(VERSION) >= _ver_tuple(latest)
+            return {
+                'current': VERSION,
+                'latest': latest,
+                'up_to_date': up_to_date,
+                'download_url': exe_url,
+            }
+        except Exception as exc:
+            return {'error': str(exc), 'current': VERSION}
+
+    def open_url(self, url):
+        import webbrowser
+        webbrowser.open(url)
+        return True
+
+
+VERSION = '1.2.0'
 
 # ─── Entrypoint ──────────────────────────────────────────────────────────────
 def _html_path():

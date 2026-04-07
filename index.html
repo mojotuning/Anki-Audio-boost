@@ -484,25 +484,120 @@
   .badge-green { color: var(--green); border-color: var(--green3); }
   .badge-red   { color: var(--red);   border-color: #330010; }
   .badge-dim   { color: var(--textdim); border-color: var(--border); }
+
+  /* ─── App Shell ────────────────────────────────────────────────── */
+  body { overflow:hidden; height:100vh; }
+  .app-shell { display:flex; height:100vh; overflow:hidden; }
+
+  .sidebar {
+    width:190px; min-width:190px;
+    background:var(--bg2); border-right:1px solid var(--border);
+    display:flex; flex-direction:column; z-index:10;
+  }
+  .sidebar-logo { padding:18px 16px 14px; border-bottom:1px solid var(--border); }
+  .sidebar-logo .logo .big { font-size:15px; letter-spacing:4px; }
+  .sidebar-logo .logo { font-size:9px; }
+
+  .nav-items { flex:1; padding:10px 0; display:flex; flex-direction:column; }
+  .nav-item {
+    display:flex; align-items:center; gap:10px;
+    width:100%; padding:13px 18px;
+    background:none; border:none; border-left:3px solid transparent;
+    color:var(--textdim);
+    font-family:'Share Tech Mono',monospace; font-size:10px;
+    letter-spacing:3px; text-transform:uppercase;
+    cursor:pointer; transition:all 0.2s; text-align:left;
+  }
+  .nav-item:hover  { color:var(--text); background:rgba(0,255,106,0.04); border-left-color:var(--green3); }
+  .nav-item.active { color:var(--green); background:rgba(0,255,106,0.07); border-left-color:var(--green); text-shadow:var(--glow); }
+  .nav-icon { font-size:13px; width:16px; text-align:center; }
+
+  .sidebar-bottom { padding:14px 16px; border-top:1px solid var(--border); }
+
+  .app-main { flex:1; overflow-y:auto; display:flex; flex-direction:column; min-width:0; }
+  .app-topbar {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 20px; border-bottom:1px solid var(--border);
+    background:var(--bg); position:sticky; top:0; z-index:5; flex-shrink:0;
+  }
+  .page-title { font-family:'Share Tech Mono',monospace; font-size:10px; letter-spacing:4px; color:var(--green); text-transform:uppercase; }
+  .app-content { padding:20px; flex:1; }
+  .page { display:none; }
+  .page.active { display:block; }
+
+  /* ─── Settings page ────────────────────────────────────────── */
+  .update-box {
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--bg2); border:1px solid var(--border); padding:20px 24px;
+    margin-bottom:12px; gap:20px; flex-wrap:wrap;
+  }
+  .version-tag  { font-family:'Share Tech Mono',monospace; font-size:22px; color:var(--green); letter-spacing:2px; }
+  .version-label{ font-family:'Share Tech Mono',monospace; font-size:9px; color:var(--textdim); letter-spacing:2px; margin-top:4px; }
+  .update-result{ font-family:'Share Tech Mono',monospace; font-size:11px; letter-spacing:1px; padding:10px 14px; border:1px solid var(--border); background:var(--bg3); display:none; }
+  .update-result.show-ok  { display:block; color:var(--green);  border-color:var(--green3); }
+  .update-result.show-new { display:block; color:var(--yellow); border-color:#664400; }
+  .update-result.show-err { display:block; color:var(--red);    border-color:#330010; }
+  .info-row { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; background:var(--bg2); border:1px solid var(--border); margin-bottom:6px; }
+  .info-key { font-family:'Share Tech Mono',monospace; font-size:9px; letter-spacing:2px; color:var(--textdim); text-transform:uppercase; }
+  .info-val { font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--green); letter-spacing:1px; text-decoration:none; }
+  .info-val:hover { text-shadow:var(--glow); }
+
+  /* ─── Account page ─────────────────────────────────────────── */
+  .account-card { background:var(--bg2); border:1px solid var(--border); padding:28px; text-align:center; margin-bottom:12px; }
+  .account-avatar {
+    width:60px; height:60px; margin:0 auto 14px;
+    background:var(--bg3); border:2px solid var(--green3);
+    display:flex; align-items:center; justify-content:center;
+    font-size:26px; color:var(--green);
+    clip-path:polygon(15% 0%,85% 0%,100% 15%,100% 85%,85% 100%,15% 100%,0% 85%,0% 15%);
+  }
+  .plan-badge { display:inline-block; font-family:'Share Tech Mono',monospace; font-size:9px; letter-spacing:3px; padding:4px 14px; background:var(--bg3); border:1px solid var(--green3); color:var(--green); text-transform:uppercase; margin-bottom:18px; }
+  .plan-features { list-style:none; text-align:left; max-width:280px; margin:0 auto; }
+  .plan-features li { font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--textdim); padding:6px 0; border-bottom:1px solid var(--border); letter-spacing:1px; }
+  .plan-features li::before { content:'✓  '; color:var(--green3); }
 </style>
 </head>
 <body>
-<div class="container">
+<div class="app-shell">
 
-  <!-- HEADER -->
-  <header>
-    <div class="logo">
-      <span class="big">⬡ WARZONE</span>
-      AUDIO ENHANCER v1.0 // TACTICAL SOUND ENGINE
+  <!-- SIDEBAR NAV -->
+  <nav class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo">
+        <span class="big">⬡ WARZONE</span>
+        AUDIO ENHANCER v1.2
+      </div>
     </div>
-    <div class="status-pill">
-      <div class="dot" id="statusDot"></div>
-      <span id="statusText">OFFLINE</span>
+    <div class="nav-items">
+      <button class="nav-item active" id="nav-home" onclick="navigate('home')">
+        <span class="nav-icon">◈</span> HOME
+      </button>
+      <button class="nav-item" id="nav-settings" onclick="navigate('settings')">
+        <span class="nav-icon">⚙</span> SETTINGS
+      </button>
+      <button class="nav-item" id="nav-account" onclick="navigate('account')">
+        <span class="nav-icon">◎</span> ACCOUNT
+      </button>
     </div>
-  </header>
+    <div class="sidebar-bottom">
+      <div class="status-pill">
+        <div class="dot" id="statusDot"></div>
+        <span id="statusText">OFFLINE</span>
+      </div>
+    </div>
+  </nav>
 
-  <!-- MAIN GRID -->
-  <div class="grid">
+  <!-- MAIN -->
+  <div class="app-main">
+    <div class="app-topbar">
+      <span class="page-title" id="pageTitle">◈ HOME // AUDIO ENGINE</span>
+      <span style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--textdim)">v1.2.0</span>
+    </div>
+    <div class="app-content">
+
+    <!-- PAGE: HOME -->
+    <div id="page-home" class="page active">
+    <div class="grid">
 
     <!-- ── LEFT COLUMN ── -->
     <div>
@@ -664,7 +759,99 @@
     </div>
 
   </div><!-- /grid -->
-</div><!-- /container -->
+  </div><!-- /page-home -->
+
+    <!-- PAGE: SETTINGS -->
+    <div id="page-settings" class="page">
+      <div class="grid">
+        <div>
+          <div class="panel" style="margin-bottom:16px">
+            <div class="panel-title">◎ Actualización del Programa</div>
+            <div class="update-box">
+              <div>
+                <div class="version-tag" id="currentVersion">v1.2.0</div>
+                <div class="version-label">VERSIÓN ACTUAL</div>
+              </div>
+              <button class="btn btn-green" id="updateBtn" onclick="checkForUpdates()">↻ BUSCAR ACTUALIZACIÓN</button>
+            </div>
+            <div class="update-result" id="updateResult"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-title">◑ Información del Sistema</div>
+            <div class="info-row">
+              <span class="info-key">Repositorio</span>
+              <a class="info-val" href="#" onclick="openExternal('https://github.com/mojotuning/Anki-Audio-boost')">GitHub ↗</a>
+            </div>
+            <div class="info-row">
+              <span class="info-key">Descargas</span>
+              <a class="info-val" href="#" onclick="openExternal('https://github.com/mojotuning/Anki-Audio-boost/releases')">Releases ↗</a>
+            </div>
+            <div class="info-row">
+              <span class="info-key">Sample Rate</span>
+              <span class="info-val">44100 Hz</span>
+            </div>
+            <div class="info-row">
+              <span class="info-key">Block Size</span>
+              <span class="info-val">1024 samples</span>
+            </div>
+            <div class="info-row">
+              <span class="info-key">Modelo ML</span>
+              <span class="info-val" id="settingsModelStatus">–</span>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="panel">
+            <div class="panel-title">◉ Compatibilidad Detectada</div>
+            <div id="compatPanelSettings">
+              <div style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--textdim);letter-spacing:1px">Abre HOME para escanear dispositivos.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /page-settings -->
+
+    <!-- PAGE: ACCOUNT -->
+    <div id="page-account" class="page">
+      <div class="grid">
+        <div>
+          <div class="panel">
+            <div class="panel-title">◎ Tu Cuenta</div>
+            <div class="account-card">
+              <div class="account-avatar">⬡</div>
+              <div class="plan-badge">FREE TIER</div>
+              <ul class="plan-features">
+                <li>Motor de audio en tiempo real</li>
+                <li>Clasificación ML ilimitada</li>
+                <li>Todos los ajustes de ganancia</li>
+                <li>Entrenamiento personalizado</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="panel">
+            <div class="panel-title">◉ Planes // PRÓXIMAMENTE</div>
+            <div class="account-card" style="opacity:0.55">
+              <div class="plan-badge" style="border-color:#664400;color:var(--yellow)">PRO — PRÓXIMAMENTE</div>
+              <ul class="plan-features">
+                <li style="color:var(--yellow)">Perfiles de audio por partida</li>
+                <li style="color:var(--yellow)">Sincronización en la nube</li>
+                <li style="color:var(--yellow)">Modelos ML pre-entrenados</li>
+                <li style="color:var(--yellow)">Actualizaciones prioritarias</li>
+              </ul>
+            </div>
+            <button class="btn btn-dim" style="width:100%;margin-top:12px;clip-path:none" disabled>
+              NOTIFICARME CUANDO ESTÉ LISTO
+            </button>
+          </div>
+        </div>
+      </div>
+    </div><!-- /page-account -->
+
+    </div><!-- /app-content -->
+  </div><!-- /app-main -->
+</div><!-- /app-shell -->
 
 <script>
 // ─── Estado ───────────────────────────────────────────────────────────────
@@ -934,6 +1121,68 @@ function log(msg, type='') {
 
 // ─── Init ─────────────────────────────────────────────────────────────────
 drawWaveform();
+
+// ─── Navegación entre páginas ─────────────────────────────────────────────────
+const PAGE_TITLES = {
+  home:     '◈ HOME // AUDIO ENGINE',
+  settings: '⚙ SETTINGS // CONFIGURACIÓN',
+  account:  '◎ ACCOUNT // PERFIL',
+};
+
+function navigate(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  document.getElementById('nav-' + page).classList.add('active');
+  document.getElementById('pageTitle').textContent = PAGE_TITLES[page] || page.toUpperCase();
+  if (page === 'settings') refreshSettingsPage();
+}
+
+async function refreshSettingsPage() {
+  try {
+    const d = await window.pywebview.api.get_status();
+    document.getElementById('settingsModelStatus').textContent = d.model_trained ? '✓ OK' : '–';
+    // Copiar lista de compat al panel de settings
+    const src = document.getElementById('compatList');
+    const dst = document.getElementById('compatPanelSettings');
+    if (src && src.innerHTML.trim()) dst.innerHTML = src.innerHTML;
+  } catch(e) {}
+}
+
+// ─── Buscar actualización ────────────────────────────────────────────────
+async function checkForUpdates() {
+  const btn = document.getElementById('updateBtn');
+  const res = document.getElementById('updateResult');
+  btn.disabled = true;
+  btn.textContent = 'COMPROBANDO...';
+  res.className = 'update-result';
+  res.textContent = '';
+  try {
+    const d = await window.pywebview.api.check_for_updates();
+    if (d.error) {
+      res.className = 'update-result show-err';
+      res.textContent = '[ERROR] ' + d.error + '  //  Verifica tu conexión.';
+    } else if (d.up_to_date) {
+      res.className = 'update-result show-ok';
+      res.textContent = '[OK] Estás usando la última versión  //  v' + d.current;
+    } else {
+      res.className = 'update-result show-new';
+      res.innerHTML = '[UPDATE] Nueva versión disponible: v' + d.latest +
+        '  &mdash;  <a href="#" onclick="openExternal(\'' + d.download_url + '\')" style="color:var(--yellow)">Descargar ↗</a>';
+    }
+  } catch(e) {
+    res.className = 'update-result show-err';
+    res.textContent = '[ERROR] ' + e;
+  }
+  btn.disabled = false;
+  btn.textContent = '↻ BUSCAR ACTUALIZACIÓN';
+}
+
+// ─── Abrir URL externa ─────────────────────────────────────────────────
+function openExternal(url) {
+  window.pywebview.api.open_url(url);
+  return false;
+}
 
 window.addEventListener('pywebviewready', () => {
   log('Aplicación lista', 'ok');

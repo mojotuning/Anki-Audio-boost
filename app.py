@@ -162,6 +162,9 @@ class Api:
         webbrowser.open(url)
         return True
 
+    def check_webview2(self):
+        return {'available': _webview2_available()}
+
     def install_update(self, download_url):
         """Descarga el nuevo exe, crea un bat que reemplaza el exe actual y relanza."""
         import threading
@@ -234,7 +237,7 @@ class Api:
             _push_js(f'onUpdateProgress({{"status":"error","msg":"{err}"}})')
 
 
-VERSION = '1.2.0'
+VERSION = '1.2.6'
 
 # ─── Entrypoint ──────────────────────────────────────────────────────────────
 def _html_path():
@@ -244,6 +247,31 @@ def _html_path():
 
 def _on_closing():
     engine.stop()
+
+
+def _webview2_available():
+    """Comprueba si WebView2 Runtime está instalado en el sistema."""
+    try:
+        import ctypes
+        ctypes.windll.WebView2Loader  # type: ignore
+        return True
+    except Exception:
+        pass
+    try:
+        import winreg
+        for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+            for path in (
+                r'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+                r'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+            ):
+                try:
+                    with winreg.OpenKey(root, path):
+                        return True
+                except OSError:
+                    pass
+    except Exception:
+        pass
+    return False
 
 
 if __name__ == '__main__':
@@ -260,6 +288,13 @@ if __name__ == '__main__':
         zoomable=False,
     )
     _window.events.closing += _on_closing
-    # http_server=True: pywebview sirve los archivos locales via su propio servidor
-    # interno (puerto aleatorio), sin Flask, sin localhost manual.
-    webview.start(http_server=True, debug=False)
+
+    # Si WebView2 no está disponible, usar mshtml (IE) como fallback
+    if _webview2_available():
+        webview.start(http_server=True, debug=False)
+    else:
+        # mshtml no soporta http_server — servir el html directamente como file://
+        try:
+            webview.start(gui='mshtml', debug=False)
+        except Exception:
+            webview.start(debug=False)  # último intento sin gui forzado

@@ -14,6 +14,7 @@ import os
 import threading
 import time
 import pickle
+import queue
 from pathlib import Path
 from scipy import signal
 from sklearn.ensemble import RandomForestClassifier
@@ -66,6 +67,10 @@ class AudioEngine:
         self.audio_buffer = deque(maxlen=100)
         self.feature_buffer = deque(maxlen=50)
         self.training_samples = []
+
+        # Cola para análisis ML en hilo separado (no bloquear callback)
+        self._analysis_queue = queue.Queue(maxsize=8)
+        self._analysis_thread = None
         
         # Estado del ML
         self.model = None
@@ -243,45 +248,66 @@ class AudioEngine:
     
     # ─── Loop principal de audio ─────────────────────────────────────────────
     def audio_callback(self, indata, outdata, frames, time_info, status):
-        """Callback del stream de audio - se ejecuta en tiempo real."""
+        """Callback del stream de audio — DEBE ser ultrarrápido, sin cálculos pesados."""
         try:
             audio = indata.copy()
-            
-            # Extraer características para ML
-            features = self.extract_features(audio)
-            
-            if features is not None:
-                # Modo entrenamiento: guardar muestra etiquetada
-                if self.training_mode and self.training_label:
-                    self.add_training_sample(features, self.training_label)
-                
-                # Predicción ML
-                pred, conf = self.predict(features)
-                self.last_prediction = pred
-                self.prediction_confidence = conf
-                
-                if self.on_prediction_update:
-                    self.on_prediction_update(pred, conf)
-            
-            # Procesar audio con los filtros
-            prediction = self.last_prediction
-            processed = self.process_audio(audio, prediction)
+
+            # Aplicar EQ con la ÚLTIMA predicción calculada en el hilo de análisis
+            processed = self.process_audio(audio, self.last_prediction)
             outdata[:] = processed
-            
-            # Nivel de audio para la UI
-            level = float(np.sqrt(np.mean(audio**2)))
-            self.audio_buffer.append(level)
-            
+
+            # Nivel RMS para el visualizador (operación mínima)
+            level = float(np.sqrt(np.mean(audio ** 2)))
             if self.on_level_update:
                 self.on_level_update(level)
-        
-        except Exception as e:
-            outdata[:] = indata  # Pass-through en caso de error
+
+            # Encolar audio para análisis ML (sin bloquear si la cola está llena)
+            try:
+                self._analysis_queue.put_nowait(audio)
+            except queue.Full:
+                pass  # Descartar bloque — mejor que bloquear el callback
+
+        except Exception:
+            outdata[:] = indata  # Pass-through de seguridad
+
+    def _analysis_worker(self):
+        """Hilo de fondo: extrae características y predice. Nunca toca el callback."""
+        while self.running:
+            try:
+                audio = self._analysis_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+
+            features = self.extract_features(audio)
+            if features is None:
+                continue
+
+            if self.training_mode and self.training_label:
+                self.add_training_sample(features, self.training_label)
+
+            pred, conf = self.predict(features)
+            self.last_prediction = pred
+            self.prediction_confidence = conf
+
+            if self.on_prediction_update:
+                self.on_prediction_update(pred, conf)
     
     def start(self, input_device=None, output_device=None):
         """Inicia el procesamiento de audio."""
         self.running = True
-        
+
+        # Limpiar cola de análisis
+        while not self._analysis_queue.empty():
+            try:
+                self._analysis_queue.get_nowait()
+            except queue.Empty:
+                break
+
+        # Hilo de análisis ML (separado del callback de audio)
+        self._analysis_thread = threading.Thread(
+            target=self._analysis_worker, daemon=True)
+        self._analysis_thread.start()
+
         try:
             self.stream = sd.Stream(
                 samplerate=SAMPLE_RATE,
@@ -293,10 +319,10 @@ class AudioEngine:
                 latency='low'
             )
             self.stream.start()
-            
+
             if self.on_status_update:
                 self.on_status_update("🎮 Audio engine activo")
-            
+
             return True
         except Exception as e:
             self.running = False
@@ -307,6 +333,8 @@ class AudioEngine:
     def stop(self):
         """Detiene el procesamiento."""
         self.running = False
+        if self._analysis_thread and self._analysis_thread.is_alive():
+            self._analysis_thread.join(timeout=1.0)
         if hasattr(self, 'stream'):
             self.stream.stop()
             self.stream.close()

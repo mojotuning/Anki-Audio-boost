@@ -234,7 +234,7 @@ class Api:
             _push_js(f'onUpdateProgress({{"status":"error","msg":"{err}"}})')
 
 
-VERSION = '1.2.8'
+VERSION = '1.3.1'
 
 # ─── Entrypoint ──────────────────────────────────────────────────────────────
 def _html_path():
@@ -246,78 +246,95 @@ def _on_closing():
     engine.stop()
 
 
-def _install_webview2():
-    """Descarga e instala WebView2 automáticamente. Solo llamar cuando se confirma que falta."""
-    import ctypes, urllib.request, ssl, tempfile, subprocess
+def _msgbox(title, msg, style=0x00 | 0x40):
+    import ctypes
+    ctypes.windll.user32.MessageBoxW(0, msg, title, style)
 
-    MB_YESNO        = 0x04
-    MB_ICONQUESTION = 0x20
-    MB_OK           = 0x00
-    MB_ICONINFO     = 0x40
-    MB_ICONERROR    = 0x10
-    IDYES           = 6
-    box = ctypes.windll.user32.MessageBoxW
+def _msgbox_yesno(title, msg):
+    import ctypes
+    return ctypes.windll.user32.MessageBoxW(0, msg, title, 0x04 | 0x20) == 6  # IDYES
 
-    r = box(
-        0,
-        "Warzone Audio Enhancer necesita instalar\n"
-        "Microsoft WebView2 Runtime para funcionar.\n\n"
-        "• Componente oficial de Microsoft (gratuito)\n"
-        "• Se instala automáticamente — solo una vez\n"
-        "• Puede tardar 1-2 minutos\n\n"
-        "\u00bfInstalar ahora?",
-        "Warzone Audio Enhancer \u2014 Componente requerido",
-        MB_YESNO | MB_ICONQUESTION
-    )
-    if r != IDYES:
-        sys.exit(0)
 
+def _silent_install(url, prefix, args, ok_codes=(0,)):
+    """Descarga url a temp y ejecuta con args. Devuelve (ok, error_str)."""
+    import urllib.request, ssl, tempfile, subprocess
     try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        ctx = ssl.create_default_context()
+    tmp = tempfile.mktemp(suffix='.exe', prefix=prefix)
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'WarzoneAudioEnhancer'})
+        with urllib.request.urlopen(req, timeout=180, context=ctx) as r:
+            with open(tmp, 'wb') as f:
+                f.write(r.read())
+        result = subprocess.run([tmp] + args, timeout=300, creationflags=0x08000000)
+        return result.returncode in ok_codes, f'exit code {result.returncode}'
+    except Exception as exc:
+        return False, str(exc)
+    finally:
         try:
-            import certifi
-            ctx = ssl.create_default_context(cafile=certifi.where())
-        except Exception:
-            ctx = ssl.create_default_context()
-
-        tmp_installer = tempfile.mktemp(suffix='.exe', prefix='wze_wv2_')
-        wv2_url = 'https://go.microsoft.com/fwlink/p/?LinkId=2124703'
-        req = urllib.request.Request(wv2_url, headers={'User-Agent': 'WarzoneAudioEnhancer'})
-        with urllib.request.urlopen(req, timeout=120, context=ctx) as resp:
-            with open(tmp_installer, 'wb') as f:
-                f.write(resp.read())
-
-        result = subprocess.run(
-            [tmp_installer, '/silent', '/install'],
-            timeout=300,
-            creationflags=0x08000000,
-        )
-
-        try:
-            os.remove(tmp_installer)
+            os.remove(tmp)
         except Exception:
             pass
 
-        if result.returncode not in (0, 1638, -2147219416):
-            # 1638 = already installed, -2147219416 = same version
-            raise RuntimeError(f'Installer exit code: {result.returncode}')
 
-        box(
-            0,
-            "\u2713 Instalaci\u00f3n completada.\n\nEl programa se reiniciar\u00e1 ahora.",
-            "Warzone Audio Enhancer",
-            MB_OK | MB_ICONINFO
-        )
+def _install_webview2():
+    if not _msgbox_yesno(
+        'Warzone Audio Enhancer — Componente requerido',
+        'Warzone Audio Enhancer necesita instalar\n'
+        'Microsoft WebView2 Runtime para funcionar.\n\n'
+        '• Componente oficial de Microsoft (gratuito)\n'
+        '• Se instala automáticamente — solo una vez\n'
+        '• Puede tardar 1-2 minutos\n\n'
+        '¿Instalar ahora?'
+    ):
+        sys.exit(0)
+    ok, err = _silent_install(
+        'https://go.microsoft.com/fwlink/p/?LinkId=2124703',
+        'wze_wv2_', ['/silent', '/install'],
+        ok_codes=(0, 1638, 2147747880)
+    )
+    if ok:
+        _msgbox('Warzone Audio Enhancer', '✓ WebView2 instalado.\n\nEl programa se reiniciará ahora.')
+        import subprocess
         subprocess.Popen([sys.executable] + sys.argv[1:])
         os._exit(0)
+    else:
+        _msgbox('Warzone Audio Enhancer — Error',
+                f'Error instalando WebView2:\n{err}\n\nInstala manualmente:\nhttps://aka.ms/webview2',
+                0x00 | 0x10)
+        sys.exit(1)
 
-    except Exception as exc:
-        box(
-            0,
-            f"Error durante la instalaci\u00f3n autom\u00e1tica:\n{exc}\n\n"
-            "Instala manualmente desde:\nhttps://aka.ms/webview2",
-            "Warzone Audio Enhancer \u2014 Error",
-            MB_OK | MB_ICONERROR
-        )
+
+def _install_dotnet():
+    if not _msgbox_yesno(
+        'Warzone Audio Enhancer — Componente requerido',
+        'Warzone Audio Enhancer necesita instalar\n'
+        'Microsoft .NET 8 Desktop Runtime para funcionar.\n\n'
+        '• Componente oficial de Microsoft (gratuito)\n'
+        '• Se instala automáticamente — solo una vez\n'
+        '• Puede tardar 2-3 minutos\n\n'
+        '¿Instalar ahora?'
+    ):
+        sys.exit(0)
+    # .NET 8 Desktop Runtime x64 — instalador offline
+    ok, err = _silent_install(
+        'https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe',
+        'wze_dotnet_', ['/install', '/quiet', '/norestart'],
+        ok_codes=(0, 1641, 3010)  # 1641=restart pending, 3010=success restart needed
+    )
+    if ok:
+        _msgbox('Warzone Audio Enhancer', '✓ .NET Runtime instalado.\n\nEl programa se reiniciará ahora.')
+        import subprocess
+        subprocess.Popen([sys.executable] + sys.argv[1:])
+        os._exit(0)
+    else:
+        _msgbox('Warzone Audio Enhancer — Error',
+                f'Error instalando .NET Runtime:\n{err}\n\n'
+                'Instala manualmente:\nhttps://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe',
+                0x00 | 0x10)
         sys.exit(1)
 
 
@@ -338,8 +355,19 @@ if __name__ == '__main__':
     try:
         webview.start(http_server=True, debug=False)
     except FileNotFoundError as e:
-        if 'WebView2' in str(e) or 'webview2' in str(e).lower():
-            # WebView2 genuinamente no está instalado — ofrecer instalación
+        if 'WebView2' in str(e):
             _install_webview2()
         else:
             raise
+    except RuntimeError as e:
+        if 'NET runtime' in str(e) or 'netfx' in str(e).lower() or 'dotnet' in str(e).lower():
+            _install_dotnet()
+        else:
+            raise
+    except OSError as e:
+        # ClrLoader.dll fallo — mismo problema de .NET
+        if 'ClrLoader' in str(e) or 'clr' in str(e).lower():
+            _install_dotnet()
+        else:
+            raise
+

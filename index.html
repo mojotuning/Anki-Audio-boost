@@ -6,7 +6,7 @@
 <title>WARZONE AUDIO ENHANCER</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+<!-- socket.io eliminado: la comunicación es nativa via pywebview -->
 <style>
   :root {
     --bg:       #050a08;
@@ -668,25 +668,283 @@
 
 <script>
 // ─── Estado ───────────────────────────────────────────────────────────────
-const isServed   = window.location.protocol !== 'file:';
-const API        = isServed ? '' : 'http://localhost:5000';
-const SOCKET_URL = isServed ? undefined : 'http://localhost:5000';
-let socket;
-let isRunning = false;
-let trainingActive = null; // null | 'mine' | 'enemy'
-let levelHistory = new Array(200).fill(0);
+let isRunning      = false;
+let trainingActive = null;          // null | 'mine' | 'enemy'
+let levelHistory   = new Array(200).fill(0);
 let animFrame;
 
-// ─── Socket.IO ────────────────────────────────────────────────────────────
-function connectSocket() {
-  try {
-    socket = io(SOCKET_URL, { transports: ['websocket','polling'] });
+// ─── Funciones llamadas directamente por Python ───────────────────────────
+function onAudioLevel(level) {
+  const pct = Math.min(level * 800, 100);
+  document.getElementById('levelFill').style.width = pct + '%';
+  const db = level > 0 ? (20 * Math.log10(level)).toFixed(1) : '-∞';
+  document.getElementById('levelDb').textContent = db + ' dB';
+  levelHistory.push(level);
+  levelHistory.shift();
+}
 
-    socket.on('connect', () => {
-      log('Conectado al servidor de audio', 'ok');
-      loadDevices();
-      scanCompatibility();
-      pollStatus();
+function onPrediction(pred, conf) {
+  const el = document.getElementById('predLabel');
+  const labels = { mine:'MIS PASOS', enemy:'ENEMIGO', unknown:'ANALIZANDO' };
+  el.textContent = labels[pred] || 'ANALIZANDO';
+  el.className = 'pred-label ' + (pred || 'unknown');
+  document.getElementById('predConf').textContent =
+    `CONFIANZA: ${(conf * 100).toFixed(1)}%`;
+}
+
+function onStatus(msg) {
+  log(msg);
+}
+
+// ─── Waveform canvas ──────────────────────────────────────────────────────
+function drawWaveform() {
+  const canvas = document.getElementById('waveform');
+  const ctx = canvas.getContext('2d');
+  canvas.width  = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+  const w = canvas.width, h = canvas.height;
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#0a120e';
+  ctx.fillRect(0, 0, w, h);
+
+  const step = w / levelHistory.length;
+  ctx.beginPath();
+  ctx.strokeStyle = '#00ff6a';
+  ctx.lineWidth = 1.5;
+  ctx.shadowBlur = 8;
+  ctx.shadowColor = '#00ff6a';
+
+  levelHistory.forEach((v, i) => {
+    const x = i * step;
+    const amp = Math.min(v * 400, 1);
+    const y1 = h/2 - (amp * h/2);
+    const y2 = h/2 + (amp * h/2);
+    if (i === 0) ctx.moveTo(x, h/2);
+    ctx.lineTo(x, y1);
+    ctx.lineTo(x, y2);
+    ctx.lineTo(x, h/2);
+  });
+  ctx.stroke();
+
+  animFrame = requestAnimationFrame(drawWaveform);
+}
+
+// ─── Dispositivos ─────────────────────────────────────────────────────────
+async function loadDevices() {
+  try {
+    const devs = await window.pywebview.api.get_devices();
+    const inp = document.getElementById('inputDevice');
+    const out = document.getElementById('outputDevice');
+    inp.innerHTML = '<option value="">-- Selecciona input --</option>';
+    out.innerHTML = '<option value="">-- Selecciona output --</option>';
+
+    devs.forEach(d => {
+      if (d.inputs  > 0) inp.innerHTML += `<option value="${d.id}">[${d.id}] ${d.name}</option>`;
+      if (d.outputs > 0) out.innerHTML += `<option value="${d.id}">[${d.id}] ${d.name}</option>`;
+    });
+    log(`${devs.length} dispositivos detectados`, 'ok');
+  } catch(e) {
+    log('Error cargando dispositivos: ' + e, 'err');
+  }
+}
+
+// ─── Compatibilidad de software ───────────────────────────────────────────
+const KNOWN_TAGS = [
+  {k:'vb_cable',    label:'VB-Cable'},
+  {k:'voicemeeter', label:'Voicemeter'},
+  {k:'eq_apo',      label:'Equalizer APO'},
+];
+
+async function scanCompatibility() {
+  try {
+    const data  = await window.pywebview.api.software_scan();
+    const panel = document.getElementById('compatPanel');
+    const list  = document.getElementById('compatList');
+
+    list.innerHTML = '';
+    let anyFound = false;
+
+    KNOWN_TAGS.forEach(({k, label}) => {
+      if (data[k]) {
+        anyFound = true;
+        const nameDetail = data.detected.find(
+          s => s.toLowerCase().startsWith(label.toLowerCase())
+        ) || label;
+        list.innerHTML += `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <span style="color:var(--green);font-family:'Share Tech Mono',monospace;font-size:11px">[OK]</span>
+            <span style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text)">${nameDetail}</span>
+          </div>`;
+      }
+    });
+
+    if (!anyFound) {
+      list.innerHTML = '<div style="font-family:\'Share Tech Mono\',monospace;font-size:10px;color:var(--yellow)">[!] No se detectó software de audio virtual.<br>Instala VB-Cable para capturar el audio del sistema.</div>';
+    }
+
+    panel.style.display = 'block';
+
+    if (data.suggested_input !== null) {
+      const inp = document.getElementById('inputDevice');
+      if (!inp.value) {
+        inp.value = String(data.suggested_input);
+        log(`Input auto-detectado: ${data.suggested_input_name}`, 'ok');
+      }
+    }
+  } catch(e) { /* silenciar */ }
+}
+
+// ─── Engine control ───────────────────────────────────────────────────────
+async function startEngine() {
+  const input  = document.getElementById('inputDevice').value;
+  const output = document.getElementById('outputDevice').value;
+
+  if (!input || !output) {
+    log('Selecciona input y output primero', 'warn'); return;
+  }
+
+  try {
+    const d = await window.pywebview.api.start_engine(parseInt(input), parseInt(output));
+    if (d.success) {
+      isRunning = true;
+      setRunningState(true);
+      log('Motor de audio ACTIVO', 'ok');
+    } else {
+      log('No se pudo iniciar el motor', 'err');
+    }
+  } catch(e) {
+    log('Error: ' + e, 'err');
+  }
+}
+
+async function stopEngine() {
+  await window.pywebview.api.stop_engine();
+  isRunning = false;
+  setRunningState(false);
+  log('Motor detenido');
+}
+
+function setRunningState(running) {
+  document.getElementById('statusDot').className   = 'dot' + (running ? ' active' : '');
+  document.getElementById('statusText').textContent = running ? 'ACTIVO' : 'OFFLINE';
+  document.getElementById('startBtn').disabled = running;
+  document.getElementById('stopBtn').disabled  = !running;
+}
+
+// ─── Ganancias ────────────────────────────────────────────────────────────
+const gainTimeout = {};
+function updateGain(key, val, labelId) {
+  document.getElementById(labelId).textContent = parseFloat(val).toFixed(1) + '×';
+  clearTimeout(gainTimeout[key]);
+  gainTimeout[key] = setTimeout(async () => {
+    try {
+      await window.pywebview.api.set_gains({ [key]: parseFloat(val) });
+    } catch(e) {}
+  }, 300);
+}
+
+// ─── Entrenamiento ────────────────────────────────────────────────────────
+function toggleTraining(label) {
+  if (trainingActive === label) stopTraining();
+  else startTraining(label);
+}
+
+async function startTraining(label) {
+  if (!isRunning) { log('Activa el motor primero', 'warn'); return; }
+
+  trainingActive = label;
+  document.getElementById('cardMine').className  = 'train-card mine'  + (label==='mine'  ? ' active-mine'  : '');
+  document.getElementById('cardEnemy').className = 'train-card enemy' + (label==='enemy' ? ' active-enemy' : '');
+
+  await window.pywebview.api.start_training(label);
+
+  document.getElementById('statusDot').className = 'dot training';
+  document.getElementById('statusText').textContent = 'ENTRENANDO: ' + label.toUpperCase();
+  log(`Grabando muestras: ${label === 'mine' ? 'MIS PASOS' : 'ENEMIGO'}`, 'warn');
+}
+
+async function stopTraining() {
+  trainingActive = null;
+  document.getElementById('cardMine').className  = 'train-card mine';
+  document.getElementById('cardEnemy').className = 'train-card enemy';
+
+  await window.pywebview.api.stop_training();
+
+  if (isRunning) {
+    document.getElementById('statusDot').className = 'dot active';
+    document.getElementById('statusText').textContent = 'ACTIVO';
+  }
+  log('Grabación detenida');
+  pollStatus();
+}
+
+async function trainModel() {
+  log('Entrenando modelo ML...', 'warn');
+  try {
+    const d = await window.pywebview.api.train_model();
+    if (d.success) {
+      log(`Modelo entrenado ✓ — ${d.samples.mine} propios / ${d.samples.enemy} enemigos`, 'ok');
+      updateSampleUI(d.samples.mine, d.samples.enemy, true);
+    } else {
+      log('Necesitas más muestras (mínimo 5 de cada tipo)', 'err');
+    }
+  } catch(e) {
+    log('Error entrenando: ' + e, 'err');
+  }
+}
+
+async function clearSamples() {
+  if (!confirm('¿Borrar todas las muestras y el modelo?')) return;
+  await window.pywebview.api.clear_samples();
+  updateSampleUI(0, 0, false);
+  log('Muestras borradas');
+}
+
+// ─── Poll de estado ───────────────────────────────────────────────────────
+async function pollStatus() {
+  try {
+    const d = await window.pywebview.api.get_status();
+    updateSampleUI(d.samples.mine, d.samples.enemy, d.model_trained);
+    if (d.running) setRunningState(true);
+  } catch(e) {}
+}
+
+function updateSampleUI(mine, enemy, trained) {
+  document.getElementById('countMine').textContent   = mine;
+  document.getElementById('countEnemy').textContent  = enemy;
+  document.getElementById('samplesMine').textContent  = mine;
+  document.getElementById('samplesEnemy').textContent = enemy;
+  document.getElementById('modelStatus').textContent  = trained ? '✓ OK' : '–';
+
+  const total  = mine + enemy;
+  const needed = 20;
+  const pct = Math.min((total / needed) * 100, 100);
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressPct').textContent  = Math.round(pct) + '%';
+}
+
+// ─── Log ──────────────────────────────────────────────────────────────────
+function log(msg, type='') {
+  const el = document.getElementById('log');
+  const ts = new Date().toLocaleTimeString();
+  el.innerHTML += `<div class="log-entry ${type}">[${ts}] ${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────
+drawWaveform();
+
+window.addEventListener('pywebviewready', () => {
+  log('Aplicación lista', 'ok');
+  loadDevices();
+  scanCompatibility();
+  pollStatus();
+  setInterval(pollStatus, 5000);
+});
+</script>
+</body>
+</html>
     });
 
     socket.on('disconnect', () => log('Desconectado del servidor', 'err'));
@@ -969,19 +1227,6 @@ function updateSampleUI(mine, enemy, trained) {
   document.getElementById('progressFill').style.width = pct + '%';
   document.getElementById('progressPct').textContent  = Math.round(pct) + '%';
 }
-
-// ─── Log ──────────────────────────────────────────────────────────────────
-function log(msg, type='') {
-  const el = document.getElementById('log');
-  const ts = new Date().toLocaleTimeString();
-  el.innerHTML += `<div class="log-entry ${type}">[${ts}] ${msg}</div>`;
-  el.scrollTop = el.scrollHeight;
-}
-
-// ─── Init ─────────────────────────────────────────────────────────────────
-drawWaveform();
-connectSocket();
-setInterval(pollStatus, 5000);
 </script>
 </body>
 </html>

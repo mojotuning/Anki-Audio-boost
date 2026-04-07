@@ -5,7 +5,7 @@
 block_cipher = None
 
 a = Analysis(
-    ['server.py'],
+    ['app.py'],
     pathex=[],
     binaries=[],
     datas=[
@@ -20,25 +20,6 @@ a = Analysis(
         'webview.platforms.edgechromium',
         'webview.platforms.mshtml',
         'clr',
-        # Flask & SocketIO
-        'flask',
-        'flask_cors',
-        'flask_socketio',
-        'engineio',
-        'engineio.async_drivers.threading',
-        'socketio',
-        'eventlet',
-        'eventlet.hubs.epolls',
-        'eventlet.hubs.kqueue',
-        'eventlet.hubs.selects',
-        'eventlet.support.greendns',
-        'dns',
-        'dns.resolver',
-        'dns.dnssec',
-        'dns.e164',
-        'dns.namedict',
-        'dns.tsigkeyring',
-        'dns.update',
         # scikit-learn
         'sklearn',
         'sklearn.ensemble',

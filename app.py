@@ -162,6 +162,77 @@ class Api:
         webbrowser.open(url)
         return True
 
+    def install_update(self, download_url):
+        """Descarga el nuevo exe, crea un bat que reemplaza el exe actual y relanza."""
+        import threading
+        # Validar que la URL es de GitHub para evitar descargar de fuentes externas
+        if not download_url.startswith('https://github.com/') and \
+           not download_url.startswith('https://objects.githubusercontent.com/'):
+            return {'error': 'URL de descarga no válida'}
+        threading.Thread(target=self._download_and_install, args=(download_url,), daemon=True).start()
+        return {'started': True}
+
+    def _download_and_install(self, download_url):
+        import urllib.request, ssl, tempfile, subprocess, time
+        try:
+            import certifi
+            ctx = ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            ctx = ssl.create_default_context()
+
+        if not getattr(sys, 'frozen', False):
+            _push_js('onUpdateProgress({"status":"error","msg":"Auto-update solo funciona desde el .exe instalado, no en modo dev"})')
+            return
+
+        current_exe = sys.executable
+        tmp_dir = tempfile.mkdtemp(prefix='wze_update_')
+        tmp_exe = os.path.join(tmp_dir, 'WarzoneAudioEnhancer_new.exe')
+
+        try:
+            _push_js('onUpdateProgress({"status":"downloading","progress":0})')
+            req = urllib.request.Request(download_url, headers={'User-Agent': 'WarzoneAudioEnhancer'})
+            with urllib.request.urlopen(req, timeout=120, context=ctx) as resp:
+                total = int(resp.headers.get('Content-Length', 0))
+                downloaded = 0
+                with open(tmp_exe, 'wb') as f:
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total > 0:
+                            pct = min(int(downloaded * 100 / total), 99)
+                            _push_js(f'onUpdateProgress({{"status":"downloading","progress":{pct}}})')
+
+            _push_js('onUpdateProgress({"status":"installing","progress":100})')
+            time.sleep(0.5)
+
+            # Bat: espera 2s (para que el proceso cierre), copia el nuevo exe, relanza
+            bat_path = os.path.join(tmp_dir, 'updater.bat')
+            bat = (
+                '@echo off\r\n'
+                'ping -n 3 127.0.0.1 > nul\r\n'
+                f'copy /y "{tmp_exe}" "{current_exe}"\r\n'
+                f'start "" "{current_exe}"\r\n'
+            )
+            with open(bat_path, 'w') as f:
+                f.write(bat)
+
+            subprocess.Popen(
+                ['cmd', '/c', bat_path],
+                creationflags=0x08000000,  # CREATE_NO_WINDOW
+                close_fds=True,
+            )
+
+            time.sleep(0.5)
+            engine.stop()
+            os._exit(0)
+
+        except Exception as exc:
+            err = str(exc).replace('"', "'").replace('\n', ' ')
+            _push_js(f'onUpdateProgress({{"status":"error","msg":"{err}"}})')
+
 
 VERSION = '1.2.0'
 

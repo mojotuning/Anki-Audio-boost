@@ -311,42 +311,137 @@ class AudioEngine:
         all_devs  = sd.query_devices()
         host_apis = sd.query_hostapis()
 
-        def _ch(dev_idx, kind):
+        # ── Parsear id loopback 'L{n}' ─────────────────────────────────────
+        loopback_input = False
+        if isinstance(input_device, str) and str(input_device).startswith('L'):
+            input_device  = int(input_device[1:])
+            loopback_input = True
+        elif input_device is not None:
+            input_device = int(input_device)
+        if output_device is not None:
+            output_device = int(output_device)
+
+        def _ch(dev_idx, kind, use_loopback=False):
+            """Canales disponibles. En loopback leemos max_output_channels del dispositivo de salida."""
             if dev_idx is None:
                 return CHANNELS
-            key = 'max_input_channels' if kind == 'in' else 'max_output_channels'
-            n = int(all_devs[dev_idx][key])
+            if use_loopback and kind == 'in':
+                n = int(all_devs[dev_idx]['max_output_channels'])
+            else:
+                key = 'max_input_channels' if kind == 'in' else 'max_output_channels'
+                n = int(all_devs[dev_idx][key])
             return min(n, CHANNELS) if n > 0 else CHANNELS
 
-        def _find_mme(dev_idx, kind):
-            """Busca la versión MME del mismo dispositivo físico."""
-            if dev_idx is None:
-                return None
-            mme_idx = next(
-                (i for i, a in enumerate(host_apis) if 'mme' in a['name'].lower()), None
-            )
-            if mme_idx is None:
-                return None
-            target = all_devs[dev_idx]['name'].lower()
-            ch_key = 'max_input_channels' if kind == 'in' else 'max_output_channels'
-            for i, d in enumerate(all_devs):
-                if d['hostapi'] != mme_idx:
-                    continue
-                if int(d[ch_key]) == 0:
-                    continue
-                dname = d['name'].lower()
-                # MME trunca nombres: comparar primeros 20 caracteres
-                if target[:20] in dname or dname[:20] in target:
-                    return i
-            return None
-
-        in_ch  = _ch(input_device,  'in')
+        in_ch  = _ch(input_device,  'in',  use_loopback=loopback_input)
         out_ch = _ch(output_device, 'out')
         last_err = None
 
-        # ── Intento 1 & 2: stream duplex combinado (WASAPI shared — sin extra_settings)
-        # NOTA: sounddevice usa WASAPI shared por defecto en Windows.
-        #       NO pasar extra_settings evita el error -9984 "Incompatible host API".
+        # ── Helper: callbacks para streams separados ────────────────────────
+        def _make_separate_callbacks(i_ch, o_ch):
+            out_buf = queue.Queue(maxsize=32)
+
+            def _in_cb(indata, frames, time_info, status):
+                try:
+                    audio = indata.copy()
+                    processed = self.process_audio(audio, self.last_prediction)
+                    if processed.shape[1] != o_ch:
+                        if processed.shape[1] > o_ch:
+                            processed = processed[:, :o_ch]
+                        else:
+                            processed = np.pad(
+                                processed, ((0, 0), (0, o_ch - processed.shape[1])))
+                    try:
+                        out_buf.put_nowait(processed)
+                    except queue.Full:
+                        pass
+                    if self.on_level_update:
+                        self.on_level_update(float(np.sqrt(np.mean(audio ** 2))))
+                    try:
+                        self._analysis_queue.put_nowait(audio)
+                    except queue.Full:
+                        pass
+                except Exception:
+                    pass
+
+            def _out_cb(outdata, frames, time_info, status):
+                try:
+                    outdata[:] = out_buf.get_nowait()
+                except queue.Empty:
+                    outdata[:] = 0
+
+            return _in_cb, _out_cb
+
+        # ════════════════════════════════════════════════════════════════════
+        # RUTA A: WASAPI LOOPBACK (nunca falla por "dispositivo ocupado")
+        # Captura lo que suena en un dispositivo de salida sin abrirlo como
+        # entrada real → compatible con Voicemeeter, GoXLR, etc.
+        # ════════════════════════════════════════════════════════════════════
+        if loopback_input:
+            _in_cb, _out_cb = _make_separate_callbacks(in_ch, out_ch)
+            loopback_cfg = None
+            try:
+                loopback_cfg = sd.WasapiSettings(input_use_loopback=True)
+            except AttributeError:
+                pass  # sounddevice muy antiguo — fallback
+
+            for sr in (SAMPLE_RATE, 48000, None):
+                _close_partial = []
+                try:
+                    kwargs_in = dict(
+                        blocksize=BLOCK_SIZE, dtype=np.float32,
+                        channels=max(in_ch, 1), device=input_device,
+                        callback=_in_cb, latency='high',
+                    )
+                    if sr is not None:
+                        kwargs_in['samplerate'] = sr
+                    if loopback_cfg is not None:
+                        kwargs_in['extra_settings'] = loopback_cfg
+
+                    self._in_stream = sd.InputStream(**kwargs_in)
+                    _close_partial.append(self._in_stream)
+
+                    actual_sr = self._in_stream.samplerate
+                    self._out_stream = sd.OutputStream(
+                        samplerate=actual_sr, blocksize=BLOCK_SIZE, dtype=np.float32,
+                        channels=max(out_ch, 1), device=output_device,
+                        callback=_out_cb, latency='high',
+                    )
+                    _close_partial.append(self._out_stream)
+
+                    self._in_stream.start()
+                    self._out_stream.start()
+                    self.stream = None
+                    if self.on_status_update:
+                        self.on_status_update(
+                            f"🎮 Audio engine activo  [{in_ch}ch → {out_ch}ch]"
+                            f"  // modo: WASAPI loopback @ {int(actual_sr)} Hz")
+                    return True, None
+
+                except Exception as e:
+                    last_err = str(e)
+                    for s in _close_partial:
+                        try:
+                            s.close()
+                        except Exception:
+                            pass
+                    self._in_stream  = None
+                    self._out_stream = None
+                    if self.on_status_update:
+                        label = f'{sr} Hz' if sr else 'sr nativo'
+                        self.on_status_update(
+                            f"⚠ [LOOPBACK {label}] falló: {last_err}")
+
+            # Loopback no disponible en este sistema
+            self.running = False
+            if self.on_status_update:
+                self.on_status_update(f"❌ WASAPI loopback no disponible: {last_err}")
+            return False, last_err
+
+        # ════════════════════════════════════════════════════════════════════
+        # RUTA B: modo normal (no loopback)
+        # ════════════════════════════════════════════════════════════════════
+
+        # ── Intento 1 & 2: stream duplex WASAPI shared ──────────────────────
         for lat in ('low', 'high'):
             try:
                 self.stream = sd.Stream(
@@ -361,7 +456,8 @@ class AudioEngine:
                 self.stream.start()
                 if self.on_status_update:
                     self.on_status_update(
-                        f"🎮 Audio engine activo  [{in_ch}ch → {out_ch}ch]  // modo: WASAPI shared ({lat})")
+                        f"🎮 Audio engine activo  [{in_ch}ch → {out_ch}ch]"
+                        f"  // modo: WASAPI shared ({lat})")
                 return True, None
             except Exception as e:
                 last_err = str(e)
@@ -369,88 +465,36 @@ class AudioEngine:
                     self.on_status_update(
                         f"⚠ [WASAPI {lat}] falló: {last_err} — probando siguiente...")
 
-        # ── Intento 3: MME equivalente
-        mme_in  = _find_mme(input_device,  'in')
-        mme_out = _find_mme(output_device, 'out')
-        if mme_in is not None or mme_out is not None:
-            mi = mme_in  if mme_in  is not None else input_device
-            mo = mme_out if mme_out is not None else output_device
-            try:
-                self.stream = sd.Stream(
-                    samplerate=SAMPLE_RATE,
-                    blocksize=BLOCK_SIZE,
-                    dtype=np.float32,
-                    channels=(max(_ch(mi, 'in'), 1), max(_ch(mo, 'out'), 1)),
-                    device=(mi, mo),
-                    callback=self.audio_callback,
-                    latency='high',
-                )
-                self.stream.start()
-                if self.on_status_update:
-                    self.on_status_update(
-                        f"🎮 Audio engine activo  [{in_ch}ch → {out_ch}ch]  // modo: MME")
-                return True, None
-            except Exception as e:
-                last_err = str(e)
-                if self.on_status_update:
-                    self.on_status_update(f"⚠ [MME] falló: {last_err} — probando streams separados...")
-
-        # ── Intento 4: streams separados (input y output en APIs independientes)
-        # Esto permite, por ejemplo, entrada desde Voicemeter VAIO y salida
-        # por auriculares WASAPI sin conflicto de host API.
+        # ── Intento 3: streams separados (APIs distintas, e.g. Voicemeter vs WASAPI) ──
+        _in_cb2, _out_cb2 = _make_separate_callbacks(in_ch, out_ch)
         try:
-            _out_buf = queue.Queue(maxsize=32)
-
-            def _separate_in_cb(indata, frames, time_info, status):
-                try:
-                    audio = indata.copy()
-                    processed = self.process_audio(audio, self.last_prediction)
-                    # Ajustar canales si difieren
-                    if processed.shape[1] != out_ch:
-                        if processed.shape[1] > out_ch:
-                            processed = processed[:, :out_ch]
-                        else:
-                            processed = np.pad(processed, ((0, 0), (0, out_ch - processed.shape[1])))
-                    try:
-                        _out_buf.put_nowait(processed)
-                    except queue.Full:
-                        pass
-                    level = float(np.sqrt(np.mean(audio ** 2)))
-                    if self.on_level_update:
-                        self.on_level_update(level)
-                    try:
-                        self._analysis_queue.put_nowait(audio)
-                    except queue.Full:
-                        pass
-                except Exception:
-                    pass
-
-            def _separate_out_cb(outdata, frames, time_info, status):
-                try:
-                    buf = _out_buf.get_nowait()
-                    outdata[:] = buf
-                except queue.Empty:
-                    outdata[:] = 0
-
-            self._in_stream  = sd.InputStream(
+            self._in_stream = sd.InputStream(
                 samplerate=SAMPLE_RATE, blocksize=BLOCK_SIZE, dtype=np.float32,
                 channels=max(in_ch, 1), device=input_device,
-                callback=_separate_in_cb, latency='high',
+                callback=_in_cb2, latency='high',
             )
             self._out_stream = sd.OutputStream(
                 samplerate=SAMPLE_RATE, blocksize=BLOCK_SIZE, dtype=np.float32,
                 channels=max(out_ch, 1), device=output_device,
-                callback=_separate_out_cb, latency='high',
+                callback=_out_cb2, latency='high',
             )
             self._in_stream.start()
             self._out_stream.start()
-            self.stream = None  # no hay stream combinado
+            self.stream = None
             if self.on_status_update:
                 self.on_status_update(
                     f"🎮 Audio engine activo  [{in_ch}ch → {out_ch}ch]  // modo: streams separados")
             return True, None
         except Exception as e:
             last_err = str(e)
+            for attr in ('_in_stream', '_out_stream'):
+                s = getattr(self, attr, None)
+                if s:
+                    try:
+                        s.close()
+                    except Exception:
+                        pass
+                    setattr(self, attr, None)
             if self.on_status_update:
                 self.on_status_update(f"⚠ [streams separados] falló: {last_err}")
 
@@ -533,13 +577,13 @@ class AudioEngine:
 # ─── Utilidades ──────────────────────────────────────────────────────────────
 def list_audio_devices():
     """
-    Lista dispositivos de audio filtrando por WASAPI (un entry por dispositivo físico).
-    Los dispositivos virtuales (Voicemeter, VB-Cable) siempre se incluyen.
+    Lista dispositivos WASAPI + virtuales.
+    Para cada dispositivo de salida WASAPI puro añade una variante con
+    id='L{i}' que abre WASAPI loopback: captura lo que suena sin conflictos.
     """
     devices   = sd.query_devices()
     host_apis = sd.query_hostapis()
 
-    # Índice del host API WASAPI en este sistema
     wasapi_idx = next(
         (i for i, a in enumerate(host_apis) if 'wasapi' in a['name'].lower()), None
     )
@@ -553,31 +597,40 @@ def list_audio_devices():
 
     result = []
     for i, d in enumerate(devices):
-        api_name = host_apis[d['hostapi']]['name'] if d['hostapi'] < len(host_apis) else ''
-        is_wasapi  = (d['hostapi'] == wasapi_idx)
-        is_virtual = _is_virtual(d['name'])
+        api_name  = host_apis[d['hostapi']]['name'] if d['hostapi'] < len(host_apis) else ''
+        is_wasapi = (d['hostapi'] == wasapi_idx)
+        is_virt   = _is_virtual(d['name'])
 
-        # Mostrar solo WASAPI o virtuales de cualquier API
-        if not is_wasapi and not is_virtual:
+        if not is_wasapi and not is_virt:
             continue
-
-        # Ignorar dispositivos sin canales útiles
         if d['max_input_channels'] == 0 and d['max_output_channels'] == 0:
             continue
 
-        display_name = d['name']
-        if is_virtual and not is_wasapi:
-            display_name = f"{d['name']}  [MME]"
-
         result.append({
             'id':         i,
-            'name':       display_name,
+            'name':       d['name'],
             'inputs':     d['max_input_channels'],
             'outputs':    d['max_output_channels'],
             'default_sr': int(d['default_samplerate']),
             'host_api':   api_name,
-            'virtual':    is_virtual,
+            'virtual':    is_virt,
+            'loopback':   False,
         })
+
+        # Variante LOOPBACK para dispositivos de salida WASAPI puros.
+        # input_use_loopback=True captura lo que se reproduce SIN tocar el dispositivo.
+        if is_wasapi and d['max_output_channels'] > 0 and d['max_input_channels'] == 0:
+            result.append({
+                'id':         f'L{i}',
+                'name':       f"[LOOPBACK] {d['name']}",
+                'inputs':     d['max_output_channels'],
+                'outputs':    0,
+                'default_sr': int(d['default_samplerate']),
+                'host_api':   api_name,
+                'virtual':    is_virt,
+                'loopback':   True,
+            })
+
     return result
 
 def detect_audio_software() -> dict:

@@ -1014,13 +1014,15 @@ async function startEngine() {
   if (!input || !output) {
     log('Selecciona input y output primero', 'warn'); return;
   }
-  if (input === output) {
+  const inputBaseId = input.startsWith('L') ? input.slice(1) : input;
+  if (inputBaseId === output) {
     log('[!] INPUT y OUTPUT son el mismo dispositivo — esto causa estática. Selecciona dispositivos distintos.', 'warn');
     return;
   }
 
   try {
-    const d = await window.pywebview.api.start_engine(parseInt(input), parseInt(output));
+    // input puede ser 'L{n}' para loopback — NO parsear como entero
+    const d = await window.pywebview.api.start_engine(input, parseInt(output));
     if (d.success) {
       isRunning = true;
       setRunningState(true);
@@ -1031,7 +1033,7 @@ async function startEngine() {
       if (err.toLowerCase().includes('channel')) {
         log('[TIP] El dispositivo no soporta ese número de canales. Prueba otro output.', 'warn');
       } else if (err.toLowerCase().includes('invalid') || err.toLowerCase().includes('unavailable') || err.includes('-9985')) {
-        log('[TIP] Dispositivo ocupado. Prueba seleccionar la salida virtual de Voicemeter (VoiceMeeter Output / VAIO) como Input, o cierra otras apps que bloqueen el dispositivo (GoXLR, etc.).', 'warn');
+        log('[TIP] Dispositivo ocupado. Selecciona el dispositivo con "[LOOPBACK]" en el dropdown de Input — captura lo que suena sin conflictos con Voicemeeter.', 'warn');
       } else if (err.toLowerCase().includes('sample') || err.toLowerCase().includes('rate')) {
         log('[TIP] Sample rate incompatible. El dispositivo puede no soportar 44100 Hz.', 'warn');
       }

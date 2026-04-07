@@ -11,6 +11,8 @@ a = Analysis(
     datas=[
         # Empaquetar la interfaz web dentro del .exe
         ('index.html', '.'),
+        # Certificados SSL para urllib (check_for_updates)
+        ('.venv/Lib/site-packages/certifi/cacert.pem', 'certifi'),
     ],
     hiddenimports=[
         # pywebview (ventana de escritorio)
@@ -57,6 +59,9 @@ a = Analysis(
         'cffi',
         # Windows (winreg disponible en Windows nativo)
         'winreg',
+        # SSL / HTTPS
+        'certifi',
+        'ssl',
     ],
     hookspath=[],
     hooksconfig={},

@@ -11,6 +11,13 @@ import os
 _src = sys._MEIPASS if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _src)
 
+# Cuando se ejecuta desde el .exe, apuntar certifi al cacert.pem empaquetado
+if getattr(sys, 'frozen', False):
+    _certifi_path = os.path.join(sys._MEIPASS, 'certifi', 'cacert.pem')
+    if os.path.exists(_certifi_path):
+        os.environ['SSL_CERT_FILE'] = _certifi_path
+        os.environ['REQUESTS_CA_BUNDLE'] = _certifi_path
+
 from audio_engine import AudioEngine, list_audio_devices, detect_audio_software
 import webview
 
@@ -116,11 +123,17 @@ class Api:
         return {'version': VERSION}
 
     def check_for_updates(self):
-        import urllib.request, json as _json
+        import urllib.request, json as _json, ssl
         try:
+            # Build SSL context using certifi's CA bundle (works inside PyInstaller exe)
+            try:
+                import certifi
+                ctx = ssl.create_default_context(cafile=certifi.where())
+            except Exception:
+                ctx = ssl.create_default_context()
             url = 'https://api.github.com/repos/mojotuning/Anki-Audio-boost/releases/latest'
             req = urllib.request.Request(url, headers={'User-Agent': 'WarzoneAudioEnhancer'})
-            with urllib.request.urlopen(req, timeout=8) as resp:
+            with urllib.request.urlopen(req, timeout=8, context=ctx) as resp:
                 data = _json.loads(resp.read().decode())
             latest = data.get('tag_name', '').lstrip('v')
             release_url = data.get('html_url', 'https://github.com/mojotuning/Anki-Audio-boost/releases')

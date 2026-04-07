@@ -137,4 +137,6 @@ if __name__ == '__main__':
         zoomable=False,
     )
     _window.events.closing += _on_closing
-    webview.start(debug=False)
+    # http_server=True: pywebview sirve los archivos locales via su propio servidor
+    # interno (puerto aleatorio), sin Flask, sin localhost manual.
+    webview.start(http_server=True, debug=False)

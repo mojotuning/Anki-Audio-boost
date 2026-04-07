@@ -162,9 +162,6 @@ class Api:
         webbrowser.open(url)
         return True
 
-    def check_webview2(self):
-        return {'available': _webview2_available()}
-
     def install_update(self, download_url):
         """Descarga el nuevo exe, crea un bat que reemplaza el exe actual y relanza."""
         import threading
@@ -249,40 +246,8 @@ def _on_closing():
     engine.stop()
 
 
-def _webview2_available():
-    """Verifica WebView2 comprobando la existencia real del DLL, no solo el registro."""
-    import glob
-    # Buscar el DLL en las ubicaciones estándar de instalación de WebView2
-    bases = [
-        r'C:\Program Files (x86)\Microsoft\EdgeWebView\Application',
-        os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft', 'EdgeWebView', 'Application'),
-        r'C:\Program Files\Microsoft\EdgeWebView\Application',
-    ]
-    for base in bases:
-        pattern = os.path.join(base, '*', 'EBWebView', 'Microsoft.Web.WebView2.Core.dll')
-        if glob.glob(pattern):
-            return True
-    # Fallback: buscar en rutas de Edge estable
-    edge_bases = [
-        r'C:\Program Files (x86)\Microsoft\Edge\Application',
-        r'C:\Program Files\Microsoft\Edge\Application',
-    ]
-    for base in edge_bases:
-        pattern = os.path.join(base, '*', 'EBWebView', 'Microsoft.Web.WebView2.Core.dll')
-        if glob.glob(pattern):
-            return True
-    return False
-
-
-def _ensure_webview2():
-    """
-    Si WebView2 Runtime no está instalado, lo descarga e instala automáticamente.
-    Muestra un diálogo nativo de Windows — sin necesidad de tkinter.
-    Llama a esta función ANTES de crear la ventana de pywebview.
-    """
-    if _webview2_available():
-        return  # Ya está instalado, nada que hacer
-
+def _install_webview2():
+    """Descarga e instala WebView2 automáticamente. Solo llamar cuando se confirma que falta."""
     import ctypes, urllib.request, ssl, tempfile, subprocess
 
     MB_YESNO        = 0x04
@@ -293,7 +258,6 @@ def _ensure_webview2():
     IDYES           = 6
     box = ctypes.windll.user32.MessageBoxW
 
-    # Pedir confirmación al usuario
     r = box(
         0,
         "Warzone Audio Enhancer necesita instalar\n"
@@ -301,22 +265,20 @@ def _ensure_webview2():
         "• Componente oficial de Microsoft (gratuito)\n"
         "• Se instala automáticamente — solo una vez\n"
         "• Puede tardar 1-2 minutos\n\n"
-        "¿Instalar ahora?",
-        "Warzone Audio Enhancer — Componente requerido",
+        "\u00bfInstalar ahora?",
+        "Warzone Audio Enhancer \u2014 Componente requerido",
         MB_YESNO | MB_ICONQUESTION
     )
     if r != IDYES:
         sys.exit(0)
 
     try:
-        # Construir contexto SSL
         try:
             import certifi
             ctx = ssl.create_default_context(cafile=certifi.where())
         except Exception:
             ctx = ssl.create_default_context()
 
-        # Descargar el bootstrapper oficial de Microsoft (~2 MB)
         tmp_installer = tempfile.mktemp(suffix='.exe', prefix='wze_wv2_')
         wv2_url = 'https://go.microsoft.com/fwlink/p/?LinkId=2124703'
         req = urllib.request.Request(wv2_url, headers={'User-Agent': 'WarzoneAudioEnhancer'})
@@ -324,12 +286,10 @@ def _ensure_webview2():
             with open(tmp_installer, 'wb') as f:
                 f.write(resp.read())
 
-        # Instalar silenciosamente (sin ventanas ni confirmaciones)
-        subprocess.run(
+        result = subprocess.run(
             [tmp_installer, '/silent', '/install'],
-            check=True,
             timeout=300,
-            creationflags=0x08000000,  # CREATE_NO_WINDOW
+            creationflags=0x08000000,
         )
 
         try:
@@ -337,32 +297,31 @@ def _ensure_webview2():
         except Exception:
             pass
 
-        # Confirmar y reiniciar el programa
+        if result.returncode not in (0, 1638, -2147219416):
+            # 1638 = already installed, -2147219416 = same version
+            raise RuntimeError(f'Installer exit code: {result.returncode}')
+
         box(
             0,
-            "✓ Instalación completada.\n\nEl programa se reiniciará ahora.",
+            "\u2713 Instalaci\u00f3n completada.\n\nEl programa se reiniciar\u00e1 ahora.",
             "Warzone Audio Enhancer",
             MB_OK | MB_ICONINFO
         )
-        exe = sys.executable
-        subprocess.Popen([exe] + sys.argv[1:])
+        subprocess.Popen([sys.executable] + sys.argv[1:])
         os._exit(0)
 
     except Exception as exc:
         box(
             0,
-            f"Error durante la instalación automática:\n{exc}\n\n"
+            f"Error durante la instalaci\u00f3n autom\u00e1tica:\n{exc}\n\n"
             "Instala manualmente desde:\nhttps://aka.ms/webview2",
-            "Warzone Audio Enhancer — Error",
+            "Warzone Audio Enhancer \u2014 Error",
             MB_OK | MB_ICONERROR
         )
         sys.exit(1)
 
 
 if __name__ == '__main__':
-    # Instalar WebView2 automáticamente si no está presente
-    _ensure_webview2()
-
     api = Api()
     _window = webview.create_window(
         title='Warzone Audio Enhancer',
@@ -376,4 +335,11 @@ if __name__ == '__main__':
         zoomable=False,
     )
     _window.events.closing += _on_closing
-    webview.start(http_server=True, debug=False)
+    try:
+        webview.start(http_server=True, debug=False)
+    except FileNotFoundError as e:
+        if 'WebView2' in str(e) or 'webview2' in str(e).lower():
+            # WebView2 genuinamente no está instalado — ofrecer instalación
+            _install_webview2()
+        else:
+            raise

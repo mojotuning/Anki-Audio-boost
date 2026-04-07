@@ -237,7 +237,7 @@ class Api:
             _push_js(f'onUpdateProgress({{"status":"error","msg":"{err}"}})')
 
 
-VERSION = '1.2.6'
+VERSION = '1.2.8'
 
 # ─── Entrypoint ──────────────────────────────────────────────────────────────
 def _html_path():
@@ -250,21 +250,27 @@ def _on_closing():
 
 
 def _webview2_available():
-    """Comprueba si WebView2 Runtime está instalado en el sistema."""
-    try:
-        import winreg
-        for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
-            for path in (
-                r'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
-                r'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
-            ):
-                try:
-                    with winreg.OpenKey(root, path):
-                        return True
-                except OSError:
-                    pass
-    except Exception:
-        pass
+    """Verifica WebView2 comprobando la existencia real del DLL, no solo el registro."""
+    import glob
+    # Buscar el DLL en las ubicaciones estándar de instalación de WebView2
+    bases = [
+        r'C:\Program Files (x86)\Microsoft\EdgeWebView\Application',
+        os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft', 'EdgeWebView', 'Application'),
+        r'C:\Program Files\Microsoft\EdgeWebView\Application',
+    ]
+    for base in bases:
+        pattern = os.path.join(base, '*', 'EBWebView', 'Microsoft.Web.WebView2.Core.dll')
+        if glob.glob(pattern):
+            return True
+    # Fallback: buscar en rutas de Edge estable
+    edge_bases = [
+        r'C:\Program Files (x86)\Microsoft\Edge\Application',
+        r'C:\Program Files\Microsoft\Edge\Application',
+    ]
+    for base in edge_bases:
+        pattern = os.path.join(base, '*', 'EBWebView', 'Microsoft.Web.WebView2.Core.dll')
+        if glob.glob(pattern):
+            return True
     return False
 
 

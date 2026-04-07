@@ -591,7 +591,7 @@
   <div class="app-main">
     <div class="app-topbar">
       <span class="page-title" id="pageTitle">◈ HOME // AUDIO ENGINE</span>
-      <span style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--textdim)">v1.2.0</span>
+      <span style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--textdim)" id="topbarVersion">...</span>
     </div>
     <div class="app-content">
 
@@ -773,7 +773,7 @@
             <div class="panel-title">◎ Actualización del Programa</div>
             <div class="update-box">
               <div>
-                <div class="version-tag" id="currentVersion">v1.2.0</div>
+                <div class="version-tag" id="currentVersion">...</div>
                 <div class="version-label">VERSIÓN ACTUAL</div>
               </div>
               <button class="btn btn-green" id="updateBtn" onclick="checkForUpdates()">↻ BUSCAR ACTUALIZACIÓN</button>
@@ -1273,6 +1273,15 @@ window.addEventListener('pywebviewready', async () => {
   scanCompatibility();
   pollStatus();
   setInterval(pollStatus, 5000);
+  // Cargar versión actual desde Python
+  try {
+    const v = await window.pywebview.api.get_version();
+    const tag = 'v' + v.version;
+    const el1 = document.getElementById('topbarVersion');
+    const el2 = document.getElementById('currentVersion');
+    if (el1) el1.textContent = tag;
+    if (el2) el2.textContent = tag;
+  } catch(e) {}
 });
 </script>
 </body>

@@ -611,6 +611,11 @@
         <label style="font-size:12px;letter-spacing:1px;color:var(--textdim);font-family:'Share Tech Mono',monospace;display:block;margin-bottom:4px">OUTPUT (Auriculares)</label>
         <select id="outputDevice"><option value="">Cargando...</option></select>
 
+        <div id="hwOutWarn" style="display:none;font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--yellow);border:1px solid #664400;padding:8px 10px;margin-top:6px;letter-spacing:1px">
+          ⚠ Este dispositivo puede estar en uso exclusivo por Voicemeeter.<br>
+          Selecciona <b>★ VoiceMeeter Input</b> como output — Voicemeeter lo recibirá y lo enviará a tus auriculares.
+        </div>
+
         <div id="sameDevWarn" style="display:none;font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--yellow);border:1px solid #664400;padding:8px 10px;margin-top:8px;letter-spacing:1px">
           [!] INPUT y OUTPUT son el mismo dispositivo.<br>Esto causará estática / feedback. Selecciona dispositivos distintos.
         </div>
@@ -930,23 +935,48 @@ async function loadDevices() {
     inp.innerHTML = '<option value="">-- Selecciona input --</option>';
     out.innerHTML = '<option value="">-- Selecciona output --</option>';
 
+    // Voicemeeter virtual inputs primero en el output dropdown
+    const vmOuts   = devs.filter(d => d.vm_out   && d.outputs > 0);
+    const otherOut = devs.filter(d => !d.vm_out  && d.outputs > 0);
+
+    if (vmOuts.length > 0) {
+      out.innerHTML += `<optgroup label="★ Recomendado — Voicemeeter Virtual Input">`;
+      vmOuts.forEach(d => {
+        out.innerHTML += `<option value="${d.id}">★ ${d.name}</option>`;
+      });
+      out.innerHTML += `</optgroup>`;
+      out.innerHTML += `<optgroup label="Otros dispositivos">`;
+      otherOut.forEach(d => {
+        out.innerHTML += `<option value="${d.id}">${d.name}  (${d.outputs}ch)</option>`;
+      });
+      out.innerHTML += `</optgroup>`;
+    } else {
+      otherOut.forEach(d => {
+        out.innerHTML += `<option value="${d.id}">${d.name}  (${d.outputs}ch)</option>`;
+      });
+    }
+
     devs.forEach(d => {
-      const api   = d.host_api ? ` — ${d.host_api}` : '';
-      if (d.inputs  > 0) {
-        const label = `[${d.id}] ${d.name}  (${d.inputs}ch IN${api})`;
+      if (d.inputs > 0) {
+        const loopTag = d.loopback ? ' 🔁' : '';
+        const label = `${d.name}${loopTag}  (${d.inputs}ch IN)`;
         inp.innerHTML += `<option value="${d.id}">${label}</option>`;
       }
-      if (d.outputs > 0) {
-        const label = `[${d.id}] ${d.name}  (${d.outputs}ch OUT${api})`;
-        out.innerHTML += `<option value="${d.id}">${label}</option>`;
-      }
+    });
+
+    // Advertir si se elige hardware físico como output (Voicemeeter lo tiene en exclusivo)
+    const hwWarn = document.getElementById('hwOutWarn');
+    out.addEventListener('change', () => {
+      const sel = devs.find(d => String(d.id) === out.value);
+      if (hwWarn) hwWarn.style.display = (sel && sel.hardware) ? 'block' : 'none';
     });
 
     // Advertir si se elige el mismo dispositivo en ambos selectores
     [inp, out].forEach(sel => {
       sel.addEventListener('change', () => {
         const warn = document.getElementById('sameDevWarn');
-        if (inp.value && out.value && inp.value === out.value) {
+        const inputBase = inp.value.startsWith('L') ? inp.value.slice(1) : inp.value;
+        if (inputBase && out.value && inputBase === out.value) {
           warn.style.display = 'block';
         } else {
           warn.style.display = 'none';
@@ -1033,7 +1063,7 @@ async function startEngine() {
       if (err.toLowerCase().includes('channel')) {
         log('[TIP] El dispositivo no soporta ese número de canales. Prueba otro output.', 'warn');
       } else if (err.toLowerCase().includes('invalid') || err.toLowerCase().includes('unavailable') || err.includes('-9985')) {
-        log('[TIP] Dispositivo ocupado. Selecciona el dispositivo con "[LOOPBACK]" en el dropdown de Input — captura lo que suena sin conflictos con Voicemeeter.', 'warn');
+        log('[TIP] Output ocupado por Voicemeeter. Selecciona ★ VoiceMeeter Input (o VoiceMeeter Aux Input) como OUTPUT. Voicemeeter recibirá el audio y lo enviará a tus auriculares vía A1.', 'warn');
       } else if (err.toLowerCase().includes('sample') || err.toLowerCase().includes('rate')) {
         log('[TIP] Sample rate incompatible. El dispositivo puede no soportar 44100 Hz.', 'warn');
       }

@@ -615,6 +615,12 @@ def list_audio_devices():
             'host_api':   api_name,
             'virtual':    is_virt,
             'loopback':   False,
+            # Voicemeeter virtual playback devices: safe as app output
+            # (never occupied, Voicemeeter routes them to hardware A1/A2)
+            'vm_out':     is_virt and d['max_output_channels'] > 0
+                          and 'voicemeeter' in d['name'].lower()
+                          and 'output' not in d['name'].lower(),
+            'hardware':   not is_virt,
         })
 
         # Variante LOOPBACK para dispositivos de salida WASAPI puros.

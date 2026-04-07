@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# PyInstaller build output
+build/
+dist/
+*.spec.bak
+
+# Modelos ML entrenados (se generan en runtime)
+data/
+
+# IDEs
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Windows
+Thumbs.db
+desktop.ini

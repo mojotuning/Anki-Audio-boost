@@ -1,0 +1,53 @@
+name: Build Windows .exe
+
+on:
+  push:
+    tags:
+      - 'v*'        # Trigger al hacer: git tag v1.0.0 && git push --tags
+  workflow_dispatch:  # Permite ejecutar manualmente desde GitHub
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: |
+          pip install -r requirements.txt
+          pip install "pyinstaller>=6.0"
+
+      - name: Compilar .exe
+        run: pyinstaller warzone_audio.spec --clean --noconfirm
+
+      - name: Subir artefacto (todas las builds)
+        uses: actions/upload-artifact@v4
+        with:
+          name: WarzoneAudioEnhancer-${{ github.sha }}
+          path: dist/WarzoneAudioEnhancer.exe
+          retention-days: 30
+
+      - name: Crear Release con el .exe (solo en tags v*)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/WarzoneAudioEnhancer.exe
+          generate_release_notes: true
+          name: "Warzone Audio Enhancer ${{ github.ref_name }}"
+          body: |
+            ## Descarga
+            Descarga `WarzoneAudioEnhancer.exe` y ejecútalo directamente.
+            No requiere instalar Python.
+
+            **Requisitos del sistema:**
+            - Windows 10 / 11
+            - Software de audio compatible ya instalado (VB-Cable, Voicemeter o similar) — **no se modifica tu configuración existente**
+
+            El programa detecta automáticamente VB-Cable, Voicemeter y Equalizer APO.

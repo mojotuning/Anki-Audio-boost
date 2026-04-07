@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WARZONE AUDIO ENHANCER</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+<style>
+  :root {
+    --bg:       #050a08;
+    --bg2:      #0a120e;
+    --bg3:      #0f1c15;
+    --panel:    #0d1a11;
+    --border:   #1a3322;
+    --green:    #00ff6a;
+    --green2:   #00cc55;
+    --green3:   #007733;
+    --red:      #ff2244;
+    --yellow:   #ffcc00;
+    --orange:   #ff6600;
+    --dim:      #3a5540;
+    --text:     #b8d4c0;
+    --textdim:  #4a6650;
+    --glow:     0 0 12px #00ff6a55;
+    --glow-r:   0 0 12px #ff224455;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 15px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanlines overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 2px,
+      rgba(0,255,80,0.015) 2px, rgba(0,255,80,0.015) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  /* Grid background */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,255,80,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,255,80,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container { max-width: 1100px; margin: 0 auto; padding: 20px; position: relative; z-index: 1; }
+
+  /* ─── Header ─────────────────────────────────────────────────── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 16px;
+    margin-bottom: 24px;
+  }
+
+  .logo {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    color: var(--green);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    line-height: 1.6;
+  }
+
+  .logo .big {
+    font-size: 22px;
+    letter-spacing: 6px;
+    display: block;
+    text-shadow: var(--glow);
+  }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 8px 16px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--dim);
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+  .dot.active { background: var(--green); box-shadow: var(--glow); animation: pulse 2s infinite; }
+  .dot.training { background: var(--yellow); animation: pulse 0.5s infinite; }
+
+  @keyframes pulse {
+    0%,100% { opacity:1; } 50% { opacity:0.4; }
+  }
+
+  /* ─── Grid layout ────────────────────────────────────────────── */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .full { grid-column: 1 / -1; }
+
+  /* ─── Panel ──────────────────────────────────────────────────── */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 20px;
+    position: relative;
+  }
+
+  .panel::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 4px; height: 100%;
+    background: var(--green3);
+  }
+
+  .panel-title {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--green);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .panel-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ─── Waveform visualizer ────────────────────────────────────── */
+  .waveform-wrap {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 4px;
+    margin-bottom: 16px;
+  }
+
+  canvas#waveform {
+    width: 100%;
+    height: 60px;
+    display: block;
+  }
+
+  /* ─── Level meter ────────────────────────────────────────────── */
+  .level-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .level-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--textdim);
+    width: 40px;
+    text-transform: uppercase;
+  }
+  .level-track {
+    flex: 1;
+    height: 6px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .level-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--green3), var(--green));
+    width: 0%;
+    transition: width 0.05s;
+    box-shadow: var(--glow);
+  }
+
+  /* ─── Prediction badge ───────────────────────────────────────── */
+  .prediction-box {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 16px;
+    text-align: center;
+    margin-bottom: 16px;
+  }
+
+  .pred-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 28px;
+    letter-spacing: 4px;
+    font-weight: bold;
+    transition: color 0.3s, text-shadow 0.3s;
+  }
+  .pred-label.mine    { color: var(--yellow); text-shadow: 0 0 16px #ffcc0066; }
+  .pred-label.enemy   { color: var(--red);    text-shadow: var(--glow-r); }
+  .pred-label.unknown { color: var(--textdim); }
+
+  .pred-conf {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    color: var(--textdim);
+    letter-spacing: 2px;
+    margin-top: 4px;
+  }
+
+  /* ─── Sliders ────────────────────────────────────────────────── */
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .slider-label {
+    width: 160px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.5px;
+  }
+  .slider-label small {
+    display: block;
+    font-size: 10px;
+    font-weight: 400;
+    color: var(--textdim);
+    letter-spacing: 1px;
+    font-family: 'Share Tech Mono', monospace;
+  }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    flex: 1;
+    height: 4px;
+    background: var(--border);
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    background: var(--green);
+    border-radius: 0;
+    box-shadow: var(--glow);
+    clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+  }
+
+  .slider-val {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    color: var(--green);
+    width: 40px;
+    text-align: right;
+  }
+
+  /* ─── Buttons ────────────────────────────────────────────────── */
+  .btn {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    border: none;
+    padding: 10px 20px;
+    cursor: pointer;
+    transition: all 0.2s;
+    clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%);
+  }
+
+  .btn-green {
+    background: var(--green3);
+    color: var(--green);
+    border: 1px solid var(--green3);
+  }
+  .btn-green:hover  { background: var(--green); color: var(--bg); box-shadow: var(--glow); }
+  .btn-green:active { transform: scale(0.97); }
+
+  .btn-red {
+    background: #330010;
+    color: var(--red);
+  }
+  .btn-red:hover  { background: var(--red); color: #fff; box-shadow: var(--glow-r); }
+
+  .btn-yellow {
+    background: #332200;
+    color: var(--yellow);
+  }
+  .btn-yellow:hover { background: var(--yellow); color: var(--bg); }
+
+  .btn-dim {
+    background: var(--bg3);
+    color: var(--textdim);
+  }
+
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  /* ─── Training section ───────────────────────────────────────── */
+  .train-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .train-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .train-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .train-card.mine::before   { background: rgba(255,204,0,0.05); }
+  .train-card.enemy::before  { background: rgba(255,34,68,0.05); }
+  .train-card.active-mine    { border-color: var(--yellow); }
+  .train-card.active-mine::before { opacity: 1; }
+  .train-card.active-enemy   { border-color: var(--red); }
+  .train-card.active-enemy::before { opacity: 1; }
+
+  .train-card-icon { font-size: 28px; margin-bottom: 8px; }
+  .train-card-title {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+  .train-card.mine .train-card-title   { color: var(--yellow); }
+  .train-card.enemy .train-card-title  { color: var(--red); }
+
+  .train-card-count {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 24px;
+    font-weight: bold;
+    margin-top: 8px;
+  }
+  .train-card.mine .train-card-count   { color: var(--yellow); }
+  .train-card.enemy .train-card-count  { color: var(--red); }
+
+  .train-tip {
+    font-size: 11px;
+    color: var(--textdim);
+    font-family: 'Share Tech Mono', monospace;
+    letter-spacing: 1px;
+    margin-top: 6px;
+  }
+
+  /* ─── Device select ──────────────────────────────────────────── */
+  select {
+    width: 100%;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+    appearance: none;
+    cursor: pointer;
+  }
+  select:focus { outline: none; border-color: var(--green3); }
+
+  /* ─── Log console ────────────────────────────────────────────── */
+  .log {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 12px;
+    height: 100px;
+    overflow-y: auto;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    line-height: 1.8;
+  }
+  .log-entry { color: var(--textdim); }
+  .log-entry.ok  { color: var(--green2); }
+  .log-entry.err { color: var(--red); }
+  .log-entry.warn { color: var(--yellow); }
+
+  /* ─── Stats row ──────────────────────────────────────────────── */
+  .stats { display: flex; gap: 12px; margin-bottom: 16px; }
+  .stat-box {
+    flex: 1;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 10px;
+    text-align: center;
+  }
+  .stat-val {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 20px;
+    color: var(--green);
+    display: block;
+  }
+  .stat-key {
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--textdim);
+    text-transform: uppercase;
+    font-family: 'Share Tech Mono', monospace;
+  }
+
+  /* ─── Responsive ─────────────────────────────────────────────── */
+  @media (max-width: 720px) {
+    .grid { grid-template-columns: 1fr; }
+    .full { grid-column: 1; }
+    .train-cards { grid-template-columns: 1fr 1fr; }
+  }
+
+  .section-gap { margin-top: 16px; }
+
+  /* Progress bar for training */
+  .progress-wrap { margin-bottom: 14px; }
+  .progress-label {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: var(--textdim);
+    margin-bottom: 4px;
+    letter-spacing: 1px;
+  }
+  .progress-track {
+    height: 4px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--green3);
+    transition: width 0.5s;
+  }
+
+  .badge {
+    display: inline-block;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 2px;
+    padding: 2px 8px;
+    border: 1px solid;
+    text-transform: uppercase;
+  }
+  .badge-green { color: var(--green); border-color: var(--green3); }
+  .badge-red   { color: var(--red);   border-color: #330010; }
+  .badge-dim   { color: var(--textdim); border-color: var(--border); }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo">
+      <span class="big">⬡ WARZONE</span>
+      AUDIO ENHANCER v1.0 // TACTICAL SOUND ENGINE
+    </div>
+    <div class="status-pill">
+      <div class="dot" id="statusDot"></div>
+      <span id="statusText">OFFLINE</span>
+    </div>
+  </header>
+
+  <!-- MAIN GRID -->
+  <div class="grid">
+
+    <!-- ── LEFT COLUMN ── -->
+    <div>
+
+      <!-- Dispositivos -->
+      <div class="panel" style="margin-bottom:16px">
+        <div class="panel-title">⚙ Dispositivos de Audio</div>
+        <label style="font-size:12px;letter-spacing:1px;color:var(--textdim);font-family:'Share Tech Mono',monospace;display:block;margin-bottom:4px">INPUT (Loopback del sistema)</label>
+        <select id="inputDevice"><option value="">Cargando...</option></select>
+
+        <label style="font-size:12px;letter-spacing:1px;color:var(--textdim);font-family:'Share Tech Mono',monospace;display:block;margin-bottom:4px">OUTPUT (Auriculares)</label>
+        <select id="outputDevice"><option value="">Cargando...</option></select>
+
+        <div class="btn-row" style="margin-top:12px">
+          <button class="btn btn-green" id="startBtn" onclick="startEngine()">▶ ACTIVAR</button>
+          <button class="btn btn-red"   id="stopBtn"  onclick="stopEngine()" disabled>■ DETENER</button>
+        </div>
+        <!-- Software detectado -->
+        <div id="compatPanel" style="margin-top:14px;display:none">
+          <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:3px;color:var(--textdim);margin-bottom:8px">SOFTWARE DETECTADO</div>
+          <div id="compatList"></div>
+          <div style="font-size:10px;color:var(--green3);font-family:'Share Tech Mono',monospace;margin-top:8px;letter-spacing:1px">// Configuraciones existentes no serán modificadas</div>
+        </div>      </div>
+
+      <!-- Visualizador -->
+      <div class="panel" style="margin-bottom:16px">
+        <div class="panel-title">◈ Monitor de Audio</div>
+        <div class="waveform-wrap">
+          <canvas id="waveform"></canvas>
+        </div>
+        <div class="level-bar-wrap">
+          <span class="level-label">INPUT</span>
+          <div class="level-track"><div class="level-fill" id="levelFill"></div></div>
+          <span class="level-label" id="levelDb">-∞ dB</span>
+        </div>
+
+        <!-- Predicción ML -->
+        <div class="prediction-box" style="margin-top:12px">
+          <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:3px;color:var(--textdim);margin-bottom:8px">CLASIFICACIÓN ML</div>
+          <div class="pred-label unknown" id="predLabel">ANALIZANDO</div>
+          <div class="pred-conf" id="predConf">CONFIANZA: --.--%</div>
+        </div>
+
+        <div class="stats">
+          <div class="stat-box">
+            <span class="stat-val" id="samplesMine">0</span>
+            <span class="stat-key">muestras propias</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-val" id="samplesEnemy">0</span>
+            <span class="stat-key">muestras enemigas</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-val" id="modelStatus">–</span>
+            <span class="stat-key">modelo ML</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── RIGHT COLUMN ── -->
+    <div>
+
+      <!-- Control de ganancias -->
+      <div class="panel" style="margin-bottom:16px">
+        <div class="panel-title">◉ Control de Ganancia</div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            Pasos Enemigos
+            <small>80 – 600 Hz | BOOST</small>
+          </div>
+          <input type="range" id="gainEnemyFeet" min="0.1" max="10" step="0.1" value="3.0"
+                 oninput="updateGain('enemy_footsteps', this.value, 'valEF')">
+          <span class="slider-val" id="valEF">3.0×</span>
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            Pasos Propios
+            <small>80 – 600 Hz | SILENCIAR</small>
+          </div>
+          <input type="range" id="gainOwnFeet" min="0.01" max="1.0" step="0.01" value="0.1"
+                 oninput="updateGain('own_footsteps', this.value, 'valOF')">
+          <span class="slider-val" id="valOF">0.1×</span>
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            Disparos Enemigos
+            <small>600 – 4000 Hz</small>
+          </div>
+          <input type="range" id="gainGuns" min="0.1" max="8" step="0.1" value="2.0"
+                 oninput="updateGain('enemy_gunshots', this.value, 'valG')">
+          <span class="slider-val" id="valG">2.0×</span>
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            Ataques Aéreos
+            <small>40 – 200 Hz | SUB-GRAVES</small>
+          </div>
+          <input type="range" id="gainAir" min="0.1" max="8" step="0.1" value="2.5"
+                 oninput="updateGain('airstrikes', this.value, 'valA')">
+          <span class="slider-val" id="valA">2.5×</span>
+        </div>
+      </div>
+
+      <!-- Entrenamiento ML -->
+      <div class="panel" style="margin-bottom:16px">
+        <div class="panel-title">◎ Entrenamiento ML</div>
+
+        <p style="font-size:12px;color:var(--textdim);margin-bottom:14px;line-height:1.5">
+          Presiona el botón correspondiente <strong style="color:var(--text)">mientras escuchas</strong> el sonido para etiquetarlo. El modelo se entrena automáticamente con ≥10 muestras de cada tipo.
+        </p>
+
+        <div class="train-cards">
+          <div class="train-card mine" id="cardMine" onclick="toggleTraining('mine')">
+            <div class="train-card-icon">🎮</div>
+            <div class="train-card-title">Mis Pasos</div>
+            <div class="train-card-count" id="countMine">0</div>
+            <div class="train-tip">Mantén presionado</div>
+          </div>
+          <div class="train-card enemy" id="cardEnemy" onclick="toggleTraining('enemy')">
+            <div class="train-card-icon">☠</div>
+            <div class="train-card-title">Enemigo</div>
+            <div class="train-card-count" id="countEnemy">0</div>
+            <div class="train-tip">Mantén presionado</div>
+          </div>
+        </div>
+
+        <div class="progress-wrap">
+          <div class="progress-label">
+            <span>PROGRESO DE ENTRENAMIENTO</span>
+            <span id="progressPct">0%</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" id="progressFill" style="width:0%"></div>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-green" onclick="trainModel()">⚡ ENTRENAR AHORA</button>
+          <button class="btn btn-dim"   onclick="clearSamples()">✕ LIMPIAR</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── CONSOLE (full width) ── -->
+    <div class="panel full">
+      <div class="panel-title">◑ Consola del Sistema</div>
+      <div class="log" id="log">
+        <div class="log-entry">// WARZONE AUDIO ENHANCER iniciado</div>
+        <div class="log-entry">// Conecta el servidor Python primero: python server.py</div>
+        <div class="log-entry warn">// Recuerda instalar VB-Cable o similar para el loopback</div>
+      </div>
+    </div>
+
+  </div><!-- /grid -->
+</div><!-- /container -->
+
+<script>
+// ─── Estado ───────────────────────────────────────────────────────────────
+const isServed   = window.location.protocol !== 'file:';
+const API        = isServed ? '' : 'http://localhost:5000';
+const SOCKET_URL = isServed ? undefined : 'http://localhost:5000';
+let socket;
+let isRunning = false;
+let trainingActive = null; // null | 'mine' | 'enemy'
+let levelHistory = new Array(200).fill(0);
+let animFrame;
+
+// ─── Socket.IO ────────────────────────────────────────────────────────────
+function connectSocket() {
+  try {
+    socket = io(SOCKET_URL, { transports: ['websocket','polling'] });
+
+    socket.on('connect', () => {
+      log('Conectado al servidor de audio', 'ok');
+      loadDevices();
+      scanCompatibility();
+      pollStatus();
+    });
+
+    socket.on('disconnect', () => log('Desconectado del servidor', 'err'));
+
+    socket.on('audio_level', d => {
+      const pct = Math.min(d.level * 800, 100);
+      document.getElementById('levelFill').style.width = pct + '%';
+      const db = d.level > 0 ? (20 * Math.log10(d.level)).toFixed(1) : '-∞';
+      document.getElementById('levelDb').textContent = db + ' dB';
+      levelHistory.push(d.level);
+      levelHistory.shift();
+    });
+
+    socket.on('prediction', d => {
+      const el = document.getElementById('predLabel');
+      const labels = { mine:'MIS PASOS', enemy:'ENEMIGO', unknown:'ANALIZANDO' };
+      el.textContent = labels[d.label] || 'ANALIZANDO';
+      el.className = 'pred-label ' + (d.label || 'unknown');
+      document.getElementById('predConf').textContent =
+        `CONFIANZA: ${d.confidence}%`;
+    });
+
+    socket.on('status', d => log(d.message));
+  } catch(e) {
+    log('No se pudo conectar — ¿Está corriendo server.py?', 'err');
+  }
+}
+
+// ─── Waveform canvas ──────────────────────────────────────────────────────
+function drawWaveform() {
+  const canvas = document.getElementById('waveform');
+  const ctx = canvas.getContext('2d');
+  canvas.width  = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+  const w = canvas.width, h = canvas.height;
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#0a120e';
+  ctx.fillRect(0, 0, w, h);
+
+  const step = w / levelHistory.length;
+  ctx.beginPath();
+  ctx.strokeStyle = '#00ff6a';
+  ctx.lineWidth = 1.5;
+  ctx.shadowBlur = 8;
+  ctx.shadowColor = '#00ff6a';
+
+  levelHistory.forEach((v, i) => {
+    const x = i * step;
+    const amp = Math.min(v * 400, 1);
+    const y1 = h/2 - (amp * h/2);
+    const y2 = h/2 + (amp * h/2);
+    if (i === 0) ctx.moveTo(x, h/2);
+    ctx.lineTo(x, y1);
+    ctx.lineTo(x, y2);
+    ctx.lineTo(x, h/2);
+  });
+  ctx.stroke();
+
+  animFrame = requestAnimationFrame(drawWaveform);
+}
+
+// ─── Dispositivos ─────────────────────────────────────────────────────────
+async function loadDevices() {
+  try {
+    const res = await fetch(`${API}/api/devices`);
+    const devs = await res.json();
+
+    const inp = document.getElementById('inputDevice');
+    const out = document.getElementById('outputDevice');
+    inp.innerHTML = '<option value="">-- Selecciona input --</option>';
+    out.innerHTML = '<option value="">-- Selecciona output --</option>';
+
+    devs.forEach(d => {
+      if (d.inputs > 0) {
+        inp.innerHTML += `<option value="${d.id}">[${d.id}] ${d.name}</option>`;
+      }
+      if (d.outputs > 0) {
+        out.innerHTML += `<option value="${d.id}">[${d.id}] ${d.name}</option>`;
+      }
+    });
+    log(`${devs.length} dispositivos detectados`, 'ok');
+  } catch(e) {
+    log('Error cargando dispositivos', 'err');
+  }
+}
+
+// ─── Compatibilidad de software ─────────────────────────────────────────────
+const KNOWN_TAGS = [{k:'vb_cable',label:'VB-Cable'},{k:'voicemeeter',label:'Voicemeter'},{k:'eq_apo',label:'Equalizer APO'}];
+
+async function scanCompatibility() {
+  try {
+    const res  = await fetch(`${API}/api/software_scan`);
+    const data = await res.json();
+    const panel = document.getElementById('compatPanel');
+    const list  = document.getElementById('compatList');
+
+    list.innerHTML = '';
+    let anyFound = false;
+
+    // Mostrar cada pieza de software detectada
+    KNOWN_TAGS.forEach(({k, label}) => {
+      if (data[k]) {
+        anyFound = true;
+        const nameDetail = data.detected.find(s => s.toLowerCase().startsWith(label.toLowerCase())) || label;
+        list.innerHTML += `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <span style="color:var(--green);font-family:'Share Tech Mono',monospace;font-size:11px">[OK]</span>
+            <span style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text)">${nameDetail}</span>
+          </div>`;
+      }
+    });
+
+    if (!anyFound) {
+      list.innerHTML = '<div style="font-family:\'Share Tech Mono\',monospace;font-size:10px;color:var(--yellow)">[!] No se detectó software de audio virtual instalado.<br>Instala VB-Cable para capturar el audio del sistema.</div>';
+    }
+
+    panel.style.display = 'block';
+
+    // Auto-seleccionar el input recomendado si el usuario no eligió nada todavía
+    if (data.suggested_input !== null) {
+      const inp = document.getElementById('inputDevice');
+      if (!inp.value) {
+        inp.value = String(data.suggested_input);
+        log(`Input auto-detectado: ${data.suggested_input_name}`, 'ok');
+      }
+    }
+  } catch(e) {
+    // silenciar — no crítico
+  }
+}
+
+// ─── Engine control ───────────────────────────────────────────────────────
+async function startEngine() {
+  const input  = document.getElementById('inputDevice').value;
+  const output = document.getElementById('outputDevice').value;
+
+  if (!input || !output) {
+    log('Selecciona input y output primero', 'warn'); return;
+  }
+
+  try {
+    const res = await fetch(`${API}/api/start`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        input_device:  parseInt(input),
+        output_device: parseInt(output)
+      })
+    });
+    const d = await res.json();
+    if (d.success) {
+      isRunning = true;
+      setRunningState(true);
+      log('Motor de audio ACTIVO', 'ok');
+    } else {
+      log('No se pudo iniciar el motor', 'err');
+    }
+  } catch(e) {
+    log('Error: ' + e.message, 'err');
+  }
+}
+
+async function stopEngine() {
+  await fetch(`${API}/api/stop`, { method: 'POST' });
+  isRunning = false;
+  setRunningState(false);
+  log('Motor detenido');
+}
+
+function setRunningState(running) {
+  document.getElementById('statusDot').className  = 'dot' + (running ? ' active' : '');
+  document.getElementById('statusText').textContent = running ? 'ACTIVO' : 'OFFLINE';
+  document.getElementById('startBtn').disabled = running;
+  document.getElementById('stopBtn').disabled  = !running;
+}
+
+// ─── Ganancias ────────────────────────────────────────────────────────────
+const gainTimeout = {};
+function updateGain(key, val, labelId) {
+  document.getElementById(labelId).textContent = parseFloat(val).toFixed(1) + '×';
+  clearTimeout(gainTimeout[key]);
+  gainTimeout[key] = setTimeout(async () => {
+    try {
+      await fetch(`${API}/api/gains`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ [key]: parseFloat(val) })
+      });
+    } catch(e) {}
+  }, 300);
+}
+
+// ─── Entrenamiento ────────────────────────────────────────────────────────
+function toggleTraining(label) {
+  if (trainingActive === label) {
+    stopTraining();
+  } else {
+    startTraining(label);
+  }
+}
+
+async function startTraining(label) {
+  if (!isRunning) { log('Activa el motor primero', 'warn'); return; }
+
+  trainingActive = label;
+  document.getElementById('cardMine').className  = 'train-card mine'  + (label==='mine'  ? ' active-mine'  : '');
+  document.getElementById('cardEnemy').className = 'train-card enemy' + (label==='enemy' ? ' active-enemy' : '');
+
+  await fetch(`${API}/api/training/start`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ label })
+  });
+
+  const dot = document.getElementById('statusDot');
+  dot.className = 'dot training';
+  document.getElementById('statusText').textContent = 'ENTRENANDO: ' + label.toUpperCase();
+  log(`Grabando muestras: ${label === 'mine' ? 'MIS PASOS' : 'ENEMIGO'}`, 'warn');
+}
+
+async function stopTraining() {
+  trainingActive = null;
+  document.getElementById('cardMine').className  = 'train-card mine';
+  document.getElementById('cardEnemy').className = 'train-card enemy';
+
+  await fetch(`${API}/api/training/stop`, { method: 'POST' });
+
+  if (isRunning) {
+    document.getElementById('statusDot').className = 'dot active';
+    document.getElementById('statusText').textContent = 'ACTIVO';
+  }
+  log('Grabación detenida');
+  pollStatus();
+}
+
+async function trainModel() {
+  log('Entrenando modelo ML...', 'warn');
+  try {
+    const res = await fetch(`${API}/api/training/train`, { method: 'POST' });
+    const d   = await res.json();
+    if (d.success) {
+      log(`Modelo entrenado ✓ — ${d.samples.mine} propios / ${d.samples.enemy} enemigos`, 'ok');
+      updateSampleUI(d.samples.mine, d.samples.enemy, true);
+    } else {
+      log('Necesitas más muestras (mínimo 5 de cada tipo)', 'err');
+    }
+  } catch(e) {
+    log('Error entrenando: ' + e.message, 'err');
+  }
+}
+
+async function clearSamples() {
+  if (!confirm('¿Borrar todas las muestras y el modelo?')) return;
+  await fetch(`${API}/api/training/clear`, { method: 'POST' });
+  updateSampleUI(0, 0, false);
+  log('Muestras borradas');
+}
+
+// ─── Poll de estado ───────────────────────────────────────────────────────
+async function pollStatus() {
+  try {
+    const res = await fetch(`${API}/api/status`);
+    const d = await res.json();
+    updateSampleUI(d.samples.mine, d.samples.enemy, d.model_trained);
+    if (d.running) setRunningState(true);
+  } catch(e) {}
+}
+
+function updateSampleUI(mine, enemy, trained) {
+  document.getElementById('countMine').textContent  = mine;
+  document.getElementById('countEnemy').textContent = enemy;
+  document.getElementById('samplesMine').textContent  = mine;
+  document.getElementById('samplesEnemy').textContent = enemy;
+  document.getElementById('modelStatus').textContent  = trained ? '✓ OK' : '–';
+
+  const total = mine + enemy;
+  const needed = 20; // 10 de cada uno
+  const pct = Math.min((total / needed) * 100, 100);
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressPct').textContent  = Math.round(pct) + '%';
+}
+
+// ─── Log ──────────────────────────────────────────────────────────────────
+function log(msg, type='') {
+  const el = document.getElementById('log');
+  const ts = new Date().toLocaleTimeString();
+  el.innerHTML += `<div class="log-entry ${type}">[${ts}] ${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────
+drawWaveform();
+connectSocket();
+setInterval(pollStatus, 5000);
+</script>
+</body>
+</html>

@@ -700,7 +700,7 @@ class Api:
         }
 
 
-VERSION = '1.5.2'
+VERSION = '1.5.3'
 
 # ─── Bandeja del sistema (system tray) ────────────────────────────────────────
 try:
@@ -768,6 +768,13 @@ def _update_tray_icon(running: bool):
         except Exception:
             pass
 
+# Pre-import módulos críticos al inicio para que estén en memoria antes de cualquier
+# limpieza de directorios temporales de PyInstaller (_MEI*).
+import ssl as _ssl
+import subprocess as _subprocess
+import tempfile as _tempfile
+import urllib.request as _urllib_request
+
 # ─── Entrypoint ──────────────────────────────────────────────────────────────
 def _html_path():
     base = sys._MEIPASS if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
@@ -787,21 +794,64 @@ def _msgbox_yesno(title, msg):
     return ctypes.windll.user32.MessageBoxW(0, msg, title, 0x04 | 0x20) == 6  # IDYES
 
 
+def _is_webview2_installed() -> bool:
+    """Verifica via registro si WebView2 Runtime está instalado."""
+    try:
+        import winreg
+        _WV2_GUID = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+        for hive, path in (
+            (winreg.HKEY_LOCAL_MACHINE, rf'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{_WV2_GUID}'),
+            (winreg.HKEY_LOCAL_MACHINE, rf'SOFTWARE\Microsoft\EdgeUpdate\Clients\{_WV2_GUID}'),
+            (winreg.HKEY_CURRENT_USER,  rf'SOFTWARE\Microsoft\EdgeUpdate\Clients\{_WV2_GUID}'),
+        ):
+            try:
+                with winreg.OpenKey(hive, path):
+                    return True
+            except OSError:
+                pass
+    except Exception:
+        pass
+    return False
+
+
+def _is_dotnet8_installed() -> bool:
+    """Verifica si .NET 8 Desktop Runtime está instalado."""
+    # Método 1: dotnet --list-runtimes
+    try:
+        r = _subprocess.run(
+            ['dotnet', '--list-runtimes'],
+            capture_output=True, text=True, timeout=5,
+            creationflags=0x08000000
+        )
+        if 'Microsoft.WindowsDesktop.App 8.' in r.stdout:
+            return True
+    except Exception:
+        pass
+    # Método 2: registro
+    try:
+        import winreg
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r'SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedFramework\Microsoft.WindowsDesktop.App'
+        ):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _silent_install(url, prefix, args, ok_codes=(0,)):
     """Descarga url a temp y ejecuta con args. Devuelve (ok, error_str)."""
-    import urllib.request, ssl, tempfile, subprocess
+    # Usar el almacén de certificados del sistema (no certifi) para evitar
+    # problemas con rutas de directorios temporales de PyInstaller ya eliminados.
+    ctx = _ssl.create_default_context()
+    tmp = _tempfile.mktemp(suffix='.exe', prefix=prefix)
     try:
-        import certifi
-        ctx = ssl.create_default_context(cafile=certifi.where())
-    except Exception:
-        ctx = ssl.create_default_context()
-    tmp = tempfile.mktemp(suffix='.exe', prefix=prefix)
-    try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'WarzoneAudioEnhancer'})
-        with urllib.request.urlopen(req, timeout=180, context=ctx) as r:
+        req = _urllib_request.Request(url, headers={'User-Agent': 'WarzoneAudioEnhancer'})
+        with _urllib_request.urlopen(req, timeout=180, context=ctx) as r:
             with open(tmp, 'wb') as f:
                 f.write(r.read())
-        result = subprocess.run([tmp] + args, timeout=300, creationflags=0x08000000)
+        result = _subprocess.run([tmp] + args, timeout=300, creationflags=0x08000000)
         return result.returncode in ok_codes, f'exit code {result.returncode}'
     except Exception as exc:
         return False, str(exc)
@@ -830,8 +880,7 @@ def _install_webview2():
     )
     if ok:
         _msgbox('Warzone Audio Enhancer', '✓ WebView2 instalado.\n\nEl programa se reiniciará ahora.')
-        import subprocess
-        subprocess.Popen([sys.executable] + sys.argv[1:])
+        _subprocess.Popen([sys.executable] + sys.argv[1:])
         os._exit(0)
     else:
         _msgbox('Warzone Audio Enhancer — Error',
@@ -851,16 +900,14 @@ def _install_dotnet():
         '¿Instalar ahora?'
     ):
         sys.exit(0)
-    # .NET 8 Desktop Runtime x64 — instalador offline
     ok, err = _silent_install(
         'https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe',
         'wze_dotnet_', ['/install', '/quiet', '/norestart'],
-        ok_codes=(0, 1641, 3010)  # 1641=restart pending, 3010=success restart needed
+        ok_codes=(0, 1641, 3010)
     )
     if ok:
         _msgbox('Warzone Audio Enhancer', '✓ .NET Runtime instalado.\n\nEl programa se reiniciará ahora.')
-        import subprocess
-        subprocess.Popen([sys.executable] + sys.argv[1:])
+        _subprocess.Popen([sys.executable] + sys.argv[1:])
         os._exit(0)
     else:
         _msgbox('Warzone Audio Enhancer — Error',
@@ -888,19 +935,38 @@ if __name__ == '__main__':
     try:
         webview.start(http_server=True, debug=False)
     except FileNotFoundError as e:
-        if 'WebView2' in str(e):
+        if 'WebView2' in str(e) and not _is_webview2_installed():
             _install_webview2()
         else:
-            raise
+            _msgbox('Warzone Audio Enhancer — Error',
+                    f'Error al iniciar (FileNotFoundError):\n\n{e}\n\n'
+                    'Si WebView2 está instalado, intenta reinstalarlo desde:\n'
+                    'https://aka.ms/webview2', 0x00 | 0x10)
+            sys.exit(1)
     except RuntimeError as e:
-        if 'NET runtime' in str(e) or 'netfx' in str(e).lower() or 'dotnet' in str(e).lower():
+        es = str(e).lower()
+        if ('net runtime' in es or 'netfx' in es or 'dotnet' in es) and not _is_dotnet8_installed():
             _install_dotnet()
         else:
-            raise
+            _msgbox('Warzone Audio Enhancer — Error',
+                    f'Error al iniciar (RuntimeError):\n\n{e}\n\n'
+                    'Asegúrate de tener .NET 8 Desktop Runtime instalado:\n'
+                    'https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe', 0x00 | 0x10)
+            sys.exit(1)
     except OSError as e:
-        # ClrLoader.dll fallo — mismo problema de .NET
-        if 'ClrLoader' in str(e) or 'clr' in str(e).lower():
+        es = str(e).lower()
+        if ('clrloader' in es or ('clr' in es and 'loader' in es)) and not _is_dotnet8_installed():
             _install_dotnet()
         else:
-            raise
+            _msgbox('Warzone Audio Enhancer — Error',
+                    f'Error al iniciar (OSError):\n\n{e}\n\n'
+                    'Si persiste, visita:\nhttps://github.com/mojotuning/Anki-Audio-boost/issues',
+                    0x00 | 0x10)
+            sys.exit(1)
+    except Exception as e:
+        _msgbox('Warzone Audio Enhancer — Error inesperado',
+                f'{type(e).__name__}:\n\n{e}\n\n'
+                'Visita:\nhttps://github.com/mojotuning/Anki-Audio-boost/issues',
+                0x00 | 0x10)
+        sys.exit(1)
 

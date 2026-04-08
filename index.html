@@ -220,9 +220,14 @@
     font-weight: bold;
     transition: color 0.3s, text-shadow 0.3s;
   }
-  .pred-label.mine    { color: var(--yellow); text-shadow: 0 0 16px #ffcc0066; }
-  .pred-label.enemy   { color: var(--red);    text-shadow: var(--glow-r); }
-  .pred-label.unknown { color: var(--textdim); }
+  .pred-label.mine,
+  .pred-label.mine_feet,
+  .pred-label.mine_guns  { color: var(--yellow); text-shadow: 0 0 16px #ffcc0066; }
+  .pred-label.enemy,
+  .pred-label.enemy_feet,
+  .pred-label.enemy_guns { color: var(--red);    text-shadow: var(--glow-r); }
+  .pred-label.airstrike  { color: #ff8800;       text-shadow: 0 0 16px #ff880066; }
+  .pred-label.unknown    { color: var(--textdim); }
 
   .pred-conf {
     font-family: 'Share Tech Mono', monospace;
@@ -1039,10 +1044,20 @@ function onAudioLevel(level) {
   levelHistory.shift();
 }
 
+const PRED_LABELS = {
+  mine_feet:  'MIS PASOS',
+  mine_guns:  'MIS DISPAROS',
+  enemy_feet: 'PASOS ENEMIGO',
+  enemy_guns: 'DISPAROS ENEMIGO',
+  airstrike:  'ATAQUE AÉREO',
+  mine:       'MIS PASOS',
+  enemy:      'ENEMIGO',
+  unknown:    'ANALIZANDO',
+};
+
 function onPrediction(pred, conf) {
   const el = document.getElementById('predLabel');
-  const labels = { mine:'MIS PASOS', enemy:'ENEMIGO', unknown:'ANALIZANDO' };
-  el.textContent = labels[pred] || 'ANALIZANDO';
+  el.textContent = PRED_LABELS[pred] || pred.toUpperCase();
   el.className = 'pred-label ' + (pred || 'unknown');
   document.getElementById('predConf').textContent =
     `CONFIANZA: ${(conf * 100).toFixed(1)}%`;
@@ -1354,6 +1369,7 @@ async function pollStatus() {
     const d = await window.pywebview.api.get_status();
     updateSampleUI(d.samples);
     if (d.running) setRunningState(true);
+    if (d.last_prediction) onPrediction(d.last_prediction, (d.confidence || 0) / 100);
   } catch(e) {}
 }
 
@@ -1510,7 +1526,7 @@ window.addEventListener('pywebviewready', async () => {
   loadDevices();
   scanCompatibility();
   pollStatus();
-  setInterval(pollStatus, 5000);
+  setInterval(pollStatus, 2000);
   // Cargar versión actual desde Python
   try {
     const v = await window.pywebview.api.get_version();
@@ -1538,12 +1554,7 @@ window.addEventListener('pywebviewready', async () => {
     });
 
     socket.on('prediction', d => {
-      const el = document.getElementById('predLabel');
-      const labels = { mine:'MIS PASOS', enemy:'ENEMIGO', unknown:'ANALIZANDO' };
-      el.textContent = labels[d.label] || 'ANALIZANDO';
-      el.className = 'pred-label ' + (d.label || 'unknown');
-      document.getElementById('predConf').textContent =
-        `CONFIANZA: ${d.confidence}%`;
+      onPrediction(d.label, (d.confidence || 0) / 100);
     });
 
     socket.on('status', d => log(d.message));

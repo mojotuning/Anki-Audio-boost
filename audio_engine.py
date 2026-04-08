@@ -60,7 +60,9 @@ class AudioEngine:
             "enemy_footsteps": 3.0,
             "own_footsteps":   0.1,
             "enemy_gunshots":  2.0,
-            "airstrikes":      2.5,
+            "own_gunshots":    0.1,   # mis disparos → atenuar
+            "airstrike_vol":   0.15,  # ataques aéreos cuando detectados → bajar sub-graves
+            "airstrikes":      2.5,   # boost aéreos cuando NO detectados
         }
         
         # Buffers
@@ -249,11 +251,15 @@ class AudioEngine:
         return result.astype(np.float32)
 
     def process_audio(self, audio_chunk, prediction):
-        """Aplica el procesamiento según la predicción del ML.
-        
-        Lógica: el boost de pasos/disparos se aplica SIEMPRE (enemy o unknown).
-        El ML solo interviene para ATENUAR cuando reconoce los pasos propios.
-        Sin modelo entrenado el programa ya funciona como booster de audio.
+        """
+        4 clases de entrenamiento:
+          mine_feet  → atenuar graves 80-600 Hz (mis pasos)
+          mine_guns  → atenuar medios 600-4000 Hz (mis disparos)
+          enemy_feet → boost graves (pasos enemigo)
+          enemy_guns → boost medios (disparos enemigo)
+          unknown    → boost todo (modo por defecto, sin modelo)
+
+        Backward compat: 'mine' → mine_feet, 'enemy' → enemy_feet
         """
         processed = audio_chunk.copy().astype(np.float64)
 
@@ -265,21 +271,31 @@ class AudioEngine:
         if self.noise_config['nr_enabled']:
             processed = self._apply_noise_reduction(processed)
 
-        if prediction == "mine":
-            # ML detectó pasos propios → atenuar esa banda
-            db_own = 20 * np.log10(max(self.gains["own_footsteps"], 1e-6))
-            processed = self.apply_eq_band(processed, 80, 600, db_own)
-        else:
-            # enemy O unknown → siempre boost (modo por defecto sin modelo)
-            db_enemy_feet = 20 * np.log10(max(self.gains["enemy_footsteps"], 1e-6))
-            processed = self.apply_eq_band(processed, 80, 600, db_enemy_feet)
+        def db(key):
+            return 20.0 * np.log10(max(self.gains[key], 1e-6))
 
-            db_guns = 20 * np.log10(max(self.gains["enemy_gunshots"], 1e-6))
-            processed = self.apply_eq_band(processed, 600, 4000, db_guns)
+        if prediction in ('mine_feet', 'mine'):
+            # Mis pasos → bajarlos, mantener boost de disparos
+            processed = self.apply_eq_band(processed, 80, 600, db('own_footsteps'))
+            processed = self.apply_eq_band(processed, 600, 4000, db('enemy_gunshots'))
+            processed = self.apply_eq_band(processed, 40, 200, db('airstrikes'))
 
-        # Boost ataques aéreos siempre
-        db_air = 20 * np.log10(max(self.gains["airstrikes"], 1e-6))
-        processed = self.apply_eq_band(processed, 40, 200, db_air)
+        elif prediction == 'mine_guns':
+            # Mis disparos → bajarlos, mantener boost de pasos
+            processed = self.apply_eq_band(processed, 80, 600, db('enemy_footsteps'))
+            processed = self.apply_eq_band(processed, 600, 4000, db('own_gunshots'))
+            processed = self.apply_eq_band(processed, 40, 200, db('airstrikes'))
+
+        elif prediction == 'airstrike':
+            # Ataque aéreo detectado → bajar sub-graves, mantener pasos/disparos audibles
+            processed = self.apply_eq_band(processed, 40, 200, db('airstrike_vol'))
+            processed = self.apply_eq_band(processed, 80, 600, db('enemy_footsteps'))
+            processed = self.apply_eq_band(processed, 600, 4000, db('enemy_gunshots'))
+
+        else:  # enemy_feet, enemy, enemy_guns, unknown → boost completo
+            processed = self.apply_eq_band(processed, 80, 600, db('enemy_footsteps'))
+            processed = self.apply_eq_band(processed, 600, 4000, db('enemy_gunshots'))
+            processed = self.apply_eq_band(processed, 40, 200, db('airstrikes'))
 
         # Prevenir clipping
         max_val = np.max(np.abs(processed))
@@ -578,9 +594,16 @@ class AudioEngine:
         self.training_label = label
     
     def get_sample_count(self):
-        mine = sum(1 for s in self.training_samples if s["label"] == "mine")
-        enemy = sum(1 for s in self.training_samples if s["label"] == "enemy")
-        return mine, enemy
+        labels = ['mine_feet', 'mine_guns', 'enemy_feet', 'enemy_guns', 'airstrike', 'mine', 'enemy']
+        counts = {lbl: sum(1 for s in self.training_samples if s['label'] == lbl)
+                  for lbl in labels}
+        # backward compat: 'mine' y 'enemy' viejos se suman a feet
+        counts['mine_feet']  += counts.pop('mine', 0)
+        counts['enemy_feet'] += counts.pop('enemy', 0)
+        # devolver también los totales "mine" y "enemy" para la barra de progreso
+        mine  = counts['mine_feet']  + counts['mine_guns']
+        enemy = counts['enemy_feet'] + counts['enemy_guns']
+        return mine, enemy, counts
     
     def clear_samples(self):
         self.training_samples = []

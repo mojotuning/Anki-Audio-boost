@@ -724,6 +724,16 @@
 
         <div class="slider-row">
           <div class="slider-label">
+            Mis Disparos
+            <small>600 – 4000 Hz | ATENUAR</small>
+          </div>
+          <input type="range" id="gainOwnGuns" min="0.01" max="1.0" step="0.01" value="0.1"
+                 oninput="updateGain('own_gunshots', this.value, 'valOG')">
+          <span class="slider-val" id="valOG">0.1×</span>
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
             Disparos Enemigos
             <small>600 – 4000 Hz</small>
           </div>
@@ -734,8 +744,18 @@
 
         <div class="slider-row">
           <div class="slider-label">
-            Ataques Aéreos
-            <small>40 – 200 Hz | SUB-GRAVES</small>
+            Ataques Aéreos (detectados)
+            <small>40 – 200 Hz | ATENUAR cuando se detectan</small>
+          </div>
+          <input type="range" id="gainAirVol" min="0.01" max="1.0" step="0.01" value="0.15"
+                 oninput="updateGain('airstrike_vol', this.value, 'valAV')">
+          <span class="slider-val" id="valAV">0.15×</span>
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-label">
+            Ataques Aéreos (boost)
+            <small>40 – 200 Hz | SUB-GRAVES cuando enemigos</small>
           </div>
           <input type="range" id="gainAir" min="0.1" max="8" step="0.1" value="2.5"
                  oninput="updateGain('airstrikes', this.value, 'valA')">
@@ -748,21 +768,39 @@
         <div class="panel-title">◎ Entrenamiento ML</div>
 
         <p style="font-size:12px;color:var(--textdim);margin-bottom:14px;line-height:1.5">
-          Presiona el botón correspondiente <strong style="color:var(--text)">mientras escuchas</strong> el sonido para etiquetarlo. El modelo se entrena automáticamente con ≥10 muestras de cada tipo.
+          Pulsa el botón correspondiente <strong style="color:var(--text)">mientras escuchas ese sonido</strong>. Con ≥10 muestras por clase el modelo se entrena solo y empieza a funcionar automáticamente.
         </p>
 
-        <div class="train-cards">
-          <div class="train-card mine" id="cardMine" onclick="toggleTraining('mine')">
-            <div class="train-card-icon">🎮</div>
+        <div class="train-cards" style="grid-template-columns:1fr 1fr">
+          <div class="train-card mine" id="cardMineFeet" onclick="toggleTraining('mine_feet')">
+            <div class="train-card-icon">👟</div>
             <div class="train-card-title">Mis Pasos</div>
-            <div class="train-card-count" id="countMine">0</div>
-            <div class="train-tip">Mantén presionado</div>
+            <div class="train-card-count" id="countMineFeet">0</div>
+            <div class="train-tip">Cuando caminas tú</div>
           </div>
-          <div class="train-card enemy" id="cardEnemy" onclick="toggleTraining('enemy')">
+          <div class="train-card mine" id="cardMineGuns" onclick="toggleTraining('mine_guns')">
+            <div class="train-card-icon">🔫</div>
+            <div class="train-card-title">Mis Disparos</div>
+            <div class="train-card-count" id="countMineGuns">0</div>
+            <div class="train-tip">Cuando disparas tú</div>
+          </div>
+          <div class="train-card enemy" id="cardEnemyFeet" onclick="toggleTraining('enemy_feet')">
             <div class="train-card-icon">☠</div>
-            <div class="train-card-title">Enemigo</div>
-            <div class="train-card-count" id="countEnemy">0</div>
-            <div class="train-tip">Mantén presionado</div>
+            <div class="train-card-title">Pasos Enemigo</div>
+            <div class="train-card-count" id="countEnemyFeet">0</div>
+            <div class="train-tip">Cuando camina el enemigo</div>
+          </div>
+          <div class="train-card enemy" id="cardEnemyGuns" onclick="toggleTraining('enemy_guns')">
+            <div class="train-card-icon">💥</div>
+            <div class="train-card-title">Disparos Enemigo</div>
+            <div class="train-card-count" id="countEnemyGuns">0</div>
+            <div class="train-tip">Cuando dispara el enemigo</div>
+          </div>
+          <div class="train-card enemy" id="cardAirstrike" onclick="toggleTraining('airstrike')" style="grid-column: 1/-1;">
+            <div class="train-card-icon">✈</div>
+            <div class="train-card-title">Ataques Aéreos</div>
+            <div class="train-card-count" id="countAirstrike">0</div>
+            <div class="train-tip">Helicópteros, jets, bombas</div>
           </div>
         </div>
 
@@ -1245,24 +1283,38 @@ function toggleTraining(label) {
   else startTraining(label);
 }
 
+const CARD_MAP = {
+  mine_feet:  { id: 'cardMineFeet',  cls: 'mine',  active: 'active-mine'  },
+  mine_guns:  { id: 'cardMineGuns',  cls: 'mine',  active: 'active-mine'  },
+  enemy_feet: { id: 'cardEnemyFeet', cls: 'enemy', active: 'active-enemy' },
+  enemy_guns: { id: 'cardEnemyGuns', cls: 'enemy', active: 'active-enemy' },
+  airstrike:  { id: 'cardAirstrike', cls: 'enemy', active: 'active-enemy' },
+};
+
+function _syncCardStates(activeLabel) {
+  for (const [lbl, cfg] of Object.entries(CARD_MAP)) {
+    const el = document.getElementById(cfg.id);
+    if (el) el.className = `train-card ${cfg.cls}` + (lbl === activeLabel ? ` ${cfg.active}` : '');
+  }
+}
+
 async function startTraining(label) {
   if (!isRunning) { log('Activa el motor primero', 'warn'); return; }
 
   trainingActive = label;
-  document.getElementById('cardMine').className  = 'train-card mine'  + (label==='mine'  ? ' active-mine'  : '');
-  document.getElementById('cardEnemy').className = 'train-card enemy' + (label==='enemy' ? ' active-enemy' : '');
+  _syncCardStates(label);
 
   await window.pywebview.api.start_training(label);
 
   document.getElementById('statusDot').className = 'dot training';
   document.getElementById('statusText').textContent = 'ENTRENANDO: ' + label.toUpperCase();
-  log(`Grabando muestras: ${label === 'mine' ? 'MIS PASOS' : 'ENEMIGO'}`, 'warn');
+  const names = { mine_feet:'MIS PASOS', mine_guns:'MIS DISPAROS', enemy_feet:'PASOS ENEMIGO', enemy_guns:'DISPAROS ENEMIGO', airstrike:'ATAQUE AÉREO' };
+  log(`Grabando muestras: ${names[label] || label}`, 'warn');
 }
 
 async function stopTraining() {
   trainingActive = null;
-  document.getElementById('cardMine').className  = 'train-card mine';
-  document.getElementById('cardEnemy').className = 'train-card enemy';
+  _syncCardStates(null);
 
   await window.pywebview.api.stop_training();
 
@@ -1280,9 +1332,9 @@ async function trainModel() {
     const d = await window.pywebview.api.train_model();
     if (d.success) {
       log(`Modelo entrenado ✓ — ${d.samples.mine} propios / ${d.samples.enemy} enemigos`, 'ok');
-      updateSampleUI(d.samples.mine, d.samples.enemy, true);
+      updateSampleUI(d.samples);
     } else {
-      log('Necesitas más muestras (mínimo 5 de cada tipo)', 'err');
+      log('Necesitas más muestras (mínimo 5 de cada clase)', 'err');
     }
   } catch(e) {
     log('Error entrenando: ' + e, 'err');
@@ -1292,7 +1344,7 @@ async function trainModel() {
 async function clearSamples() {
   if (!confirm('¿Borrar todas las muestras y el modelo?')) return;
   await window.pywebview.api.clear_samples();
-  updateSampleUI(0, 0, false);
+  updateSampleUI({mine_feet:0, mine_guns:0, enemy_feet:0, enemy_guns:0, airstrike:0});
   log('Muestras borradas');
 }
 
@@ -1300,23 +1352,36 @@ async function clearSamples() {
 async function pollStatus() {
   try {
     const d = await window.pywebview.api.get_status();
-    updateSampleUI(d.samples.mine, d.samples.enemy, d.model_trained);
+    updateSampleUI(d.samples);
     if (d.running) setRunningState(true);
   } catch(e) {}
 }
 
-function updateSampleUI(mine, enemy, trained) {
-  document.getElementById('countMine').textContent   = mine;
-  document.getElementById('countEnemy').textContent  = enemy;
-  document.getElementById('samplesMine').textContent  = mine;
-  document.getElementById('samplesEnemy').textContent = enemy;
-  document.getElementById('modelStatus').textContent  = trained ? '✓ OK' : '–';
-
-  const total  = mine + enemy;
-  const needed = 20;
+function updateSampleUI(samples) {
+  const mf = samples.mine_feet  || 0;
+  const mg = samples.mine_guns  || 0;
+  const ef = samples.enemy_feet || 0;
+  const eg = samples.enemy_guns || 0;
+  const as = samples.airstrike  || 0;
+  const mine  = (samples.mine  || 0) + mf + mg;  // backward compat
+  const enemy = (samples.enemy || 0) + ef + eg;
+  if (document.getElementById('countMineFeet'))  document.getElementById('countMineFeet').textContent  = mf;
+  if (document.getElementById('countMineGuns'))  document.getElementById('countMineGuns').textContent  = mg;
+  if (document.getElementById('countEnemyFeet')) document.getElementById('countEnemyFeet').textContent = ef;
+  if (document.getElementById('countEnemyGuns')) document.getElementById('countEnemyGuns').textContent = eg;
+  if (document.getElementById('countAirstrike')) document.getElementById('countAirstrike').textContent = as;
+  // backward compat with counters on stats panel
+  if (document.getElementById('countMine'))  document.getElementById('countMine').textContent  = mine;
+  if (document.getElementById('countEnemy')) document.getElementById('countEnemy').textContent = enemy;
+  if (document.getElementById('samplesMine'))  document.getElementById('samplesMine').textContent  = mine;
+  if (document.getElementById('samplesEnemy')) document.getElementById('samplesEnemy').textContent = enemy;
+  const trained = samples.trained !== undefined ? samples.trained : false;
+  if (document.getElementById('modelStatus')) document.getElementById('modelStatus').textContent = trained ? '✓ OK' : '–';
+  const total  = mine + enemy + as;
+  const needed = 50;  // 10 por cada una de las 5 clases
   const pct = Math.min((total / needed) * 100, 100);
-  document.getElementById('progressFill').style.width = pct + '%';
-  document.getElementById('progressPct').textContent  = Math.round(pct) + '%';
+  if (document.getElementById('progressFill')) document.getElementById('progressFill').style.width = pct + '%';
+  if (document.getElementById('progressPct'))  document.getElementById('progressPct').textContent  = Math.round(pct) + '%';
 }
 
 // ─── Log ──────────────────────────────────────────────────────────────────
@@ -1665,8 +1730,7 @@ async function startTraining(label) {
   if (!isRunning) { log('Activa el motor primero', 'warn'); return; }
 
   trainingActive = label;
-  document.getElementById('cardMine').className  = 'train-card mine'  + (label==='mine'  ? ' active-mine'  : '');
-  document.getElementById('cardEnemy').className = 'train-card enemy' + (label==='enemy' ? ' active-enemy' : '');
+  _syncCardStates(label);
 
   await fetch(`${API}/api/training/start`, {
     method: 'POST',
@@ -1677,13 +1741,13 @@ async function startTraining(label) {
   const dot = document.getElementById('statusDot');
   dot.className = 'dot training';
   document.getElementById('statusText').textContent = 'ENTRENANDO: ' + label.toUpperCase();
-  log(`Grabando muestras: ${label === 'mine' ? 'MIS PASOS' : 'ENEMIGO'}`, 'warn');
+  const names = { mine_feet:'MIS PASOS', mine_guns:'MIS DISPAROS', enemy_feet:'PASOS ENEMIGO', enemy_guns:'DISPAROS ENEMIGO', airstrike:'ATAQUE AÉREO' };
+  log(`Grabando muestras: ${names[label] || label}`, 'warn');
 }
 
 async function stopTraining() {
   trainingActive = null;
-  document.getElementById('cardMine').className  = 'train-card mine';
-  document.getElementById('cardEnemy').className = 'train-card enemy';
+  _syncCardStates(null);
 
   await fetch(`${API}/api/training/stop`, { method: 'POST' });
 
@@ -1693,53 +1757,6 @@ async function stopTraining() {
   }
   log('Grabación detenida');
   pollStatus();
-}
-
-async function trainModel() {
-  log('Entrenando modelo ML...', 'warn');
-  try {
-    const res = await fetch(`${API}/api/training/train`, { method: 'POST' });
-    const d   = await res.json();
-    if (d.success) {
-      log(`Modelo entrenado ✓ — ${d.samples.mine} propios / ${d.samples.enemy} enemigos`, 'ok');
-      updateSampleUI(d.samples.mine, d.samples.enemy, true);
-    } else {
-      log('Necesitas más muestras (mínimo 5 de cada tipo)', 'err');
-    }
-  } catch(e) {
-    log('Error entrenando: ' + e.message, 'err');
-  }
-}
-
-async function clearSamples() {
-  if (!confirm('¿Borrar todas las muestras y el modelo?')) return;
-  await fetch(`${API}/api/training/clear`, { method: 'POST' });
-  updateSampleUI(0, 0, false);
-  log('Muestras borradas');
-}
-
-// ─── Poll de estado ───────────────────────────────────────────────────────
-async function pollStatus() {
-  try {
-    const res = await fetch(`${API}/api/status`);
-    const d = await res.json();
-    updateSampleUI(d.samples.mine, d.samples.enemy, d.model_trained);
-    if (d.running) setRunningState(true);
-  } catch(e) {}
-}
-
-function updateSampleUI(mine, enemy, trained) {
-  document.getElementById('countMine').textContent  = mine;
-  document.getElementById('countEnemy').textContent = enemy;
-  document.getElementById('samplesMine').textContent  = mine;
-  document.getElementById('samplesEnemy').textContent = enemy;
-  document.getElementById('modelStatus').textContent  = trained ? '✓ OK' : '–';
-
-  const total = mine + enemy;
-  const needed = 20; // 10 de cada uno
-  const pct = Math.min((total / needed) * 100, 100);
-  document.getElementById('progressFill').style.width = pct + '%';
-  document.getElementById('progressPct').textContent  = Math.round(pct) + '%';
 }
 </script>
 </body>

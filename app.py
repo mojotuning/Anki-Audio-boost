@@ -76,13 +76,14 @@ class Api:
         return {'success': True, 'running': False}
 
     def get_status(self):
-        mine, enemy = engine.get_sample_count()
+        mine, enemy, counts = engine.get_sample_count()
+        counts['trained'] = engine.model_trained
         return {
             'running':        engine.running,
             'model_trained':  engine.model_trained,
             'training_mode':  engine.training_mode,
             'training_label': engine.training_label,
-            'samples':        {'mine': mine, 'enemy': enemy},
+            'samples':        counts,
             'gains':          engine.gains,
             'last_prediction': engine.last_prediction,
             'confidence':     round(engine.prediction_confidence * 100, 1),
@@ -112,10 +113,13 @@ class Api:
 
     def train_model(self):
         success = engine.train_model()
-        mine, enemy = engine.get_sample_count()
+        mine, enemy, counts = engine.get_sample_count()
+        counts['trained'] = engine.model_trained
+        counts['mine']  = mine
+        counts['enemy'] = enemy
         return {
             'success':       success,
-            'samples':       {'mine': mine, 'enemy': enemy},
+            'samples':       counts,
             'model_trained': engine.model_trained,
         }
 
@@ -124,8 +128,10 @@ class Api:
         return {'cleared': True}
 
     def get_samples(self):
-        mine, enemy = engine.get_sample_count()
-        return {'mine': mine, 'enemy': enemy}
+        mine, enemy, counts = engine.get_sample_count()
+        counts['mine']  = mine
+        counts['enemy'] = enemy
+        return counts
 
     def get_version(self):
         return {'version': VERSION}
@@ -242,7 +248,7 @@ class Api:
             _push_js(f'onUpdateProgress({{"status":"error","msg":"{err}"}})')
 
 
-VERSION = '1.4.3'
+VERSION = '1.4.4'
 
 # ─── Entrypoint ──────────────────────────────────────────────────────────────
 def _html_path():

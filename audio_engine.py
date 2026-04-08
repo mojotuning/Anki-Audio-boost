@@ -24,7 +24,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # ─── Configuración ───────────────────────────────────────────────────────────
-SAMPLE_RATE = 44100
+SAMPLE_RATE = 48000   # Voicemeeter y la mayoría de interfaces modernas corren a 48 kHz
 BLOCK_SIZE = 1024
 CHANNELS = 2
 
@@ -442,39 +442,47 @@ class AudioEngine:
         # ════════════════════════════════════════════════════════════════════
 
         # ── Intento 1 & 2: stream duplex WASAPI shared ──────────────────────
-        for lat in ('low', 'high'):
-            try:
-                self.stream = sd.Stream(
-                    samplerate=SAMPLE_RATE,
-                    blocksize=BLOCK_SIZE,
-                    dtype=np.float32,
-                    channels=(max(in_ch, 1), max(out_ch, 1)),
-                    device=(input_device, output_device),
-                    callback=self.audio_callback,
-                    latency=lat,
-                )
-                self.stream.start()
-                if self.on_status_update:
-                    self.on_status_update(
-                        f"🎮 Audio engine activo  [{in_ch}ch → {out_ch}ch]"
-                        f"  // modo: WASAPI shared ({lat})")
-                return True, None
-            except Exception as e:
-                last_err = str(e)
-                if self.on_status_update:
-                    self.on_status_update(
-                        f"⚠ [WASAPI {lat}] falló: {last_err} — probando siguiente...")
+        # Probar 48000 primero, luego el SR nativo del dispositivo de entrada
+        in_native_sr  = int(all_devs[input_device]['default_samplerate'])  if input_device  is not None else SAMPLE_RATE
+        out_native_sr = int(all_devs[output_device]['default_samplerate']) if output_device is not None else SAMPLE_RATE
+        # Si ambos dispositivos tienen el mismo SR nativo, usarlo; si no, preferir el de salida (Voicemeeter)
+        best_sr = out_native_sr if out_native_sr == in_native_sr else out_native_sr
+        sample_rates_to_try = list(dict.fromkeys([SAMPLE_RATE, best_sr, in_native_sr, 44100]))
+
+        for sr in sample_rates_to_try:
+            for lat in ('low', 'high'):
+                try:
+                    self.stream = sd.Stream(
+                        samplerate=sr,
+                        blocksize=BLOCK_SIZE,
+                        dtype=np.float32,
+                        channels=(max(in_ch, 1), max(out_ch, 1)),
+                        device=(input_device, output_device),
+                        callback=self.audio_callback,
+                        latency=lat,
+                    )
+                    self.stream.start()
+                    if self.on_status_update:
+                        self.on_status_update(
+                            f"🎮 Audio engine activo  [{in_ch}ch → {out_ch}ch]"
+                            f"  // modo: WASAPI shared ({lat}) @ {sr} Hz")
+                    return True, None
+                except Exception as e:
+                    last_err = str(e)
+                    if self.on_status_update:
+                        self.on_status_update(
+                            f"⚠ [WASAPI {sr}Hz {lat}] falló: {last_err} — probando siguiente...")
 
         # ── Intento 3: streams separados (APIs distintas, e.g. Voicemeter vs WASAPI) ──
         _in_cb2, _out_cb2 = _make_separate_callbacks(in_ch, out_ch)
         try:
             self._in_stream = sd.InputStream(
-                samplerate=SAMPLE_RATE, blocksize=BLOCK_SIZE, dtype=np.float32,
+                samplerate=best_sr, blocksize=BLOCK_SIZE, dtype=np.float32,
                 channels=max(in_ch, 1), device=input_device,
                 callback=_in_cb2, latency='high',
             )
             self._out_stream = sd.OutputStream(
-                samplerate=SAMPLE_RATE, blocksize=BLOCK_SIZE, dtype=np.float32,
+                samplerate=best_sr, blocksize=BLOCK_SIZE, dtype=np.float32,
                 channels=max(out_ch, 1), device=output_device,
                 callback=_out_cb2, latency='high',
             )

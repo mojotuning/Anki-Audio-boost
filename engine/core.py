@@ -6,14 +6,15 @@ from collections import deque
 
 from sklearn.preprocessing import StandardScaler
 
-from .config     import BLOCK_SIZE, DATA_DIR
+from .config     import BLOCK_SIZE, DATA_DIR, PRED_VOTE_WINDOW
 from .features   import FeaturesMixin
 from .filters    import FiltersMixin
 from .ml         import MLMixin
+from .review     import ReviewMixin
 from .stream     import StreamMixin
 
 
-class AudioEngine(FeaturesMixin, FiltersMixin, MLMixin, StreamMixin):
+class AudioEngine(FeaturesMixin, FiltersMixin, MLMixin, ReviewMixin, StreamMixin):
     """
     Motor de audio intelligent para Warzone.
     Hereda de los mixins que implementan cada subsistema:
@@ -60,8 +61,8 @@ class AudioEngine(FeaturesMixin, FiltersMixin, MLMixin, StreamMixin):
         # Precisión por clase del último entrenamiento
         self._accuracy_report: dict = {}
 
-        # Ventana de votación: votar entre los últimos N bloques para suavizar
-        self._pred_window: deque = deque(maxlen=5)
+        # Ventana de votación: votar entre las últimas N predicciones para suavizar
+        self._pred_window: deque = deque(maxlen=PRED_VOTE_WINDOW)
 
         # ── Tamaño de bloque (ajustable desde la UI) ──────────────────────
         self.block_size = BLOCK_SIZE
@@ -115,6 +116,8 @@ class AudioEngine(FeaturesMixin, FiltersMixin, MLMixin, StreamMixin):
             'class_counts':    {},
             'confidences':     [],
         }
+
+        self._init_review()
 
         self._load_model()
         self._load_samples()

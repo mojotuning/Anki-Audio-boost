@@ -9,7 +9,7 @@ from collections import Counter
 import numpy as np
 import sounddevice as sd
 
-from .config import SAMPLE_RATE, CHANNELS
+from .config import SAMPLE_RATE, CHANNELS, REVIEW_WINDOW_BLOCKS, PRED_WINDOW_BLOCKS
 
 # Throttle: empujar a UI máx cada N segundos (evita saturar pywebview evaluate_js)
 _PRED_PUSH_INTERVAL = 0.40  # segundos — cambio de clase siempre es inmediato
@@ -43,6 +43,11 @@ class StreamMixin:
 
     def _analysis_worker(self):
         """Hilo de fondo: extrae características y predice. Nunca toca el callback."""
+        # Variables locales para el caso en que el bucle termina sin predecir
+        voted_pred = "unknown"
+        voted_conf = 0.0
+        prev_pred  = "unknown"
+
         while self.running:
             try:
                 audio = self._analysis_queue.get(timeout=0.2)
@@ -50,16 +55,35 @@ class StreamMixin:
                 continue
 
             try:
-                features = self.extract_features(audio)
+                # ── Acumulación para ENTRENAMIENTO (→ revisar chunk) ──────────
+                if self.training_mode and self.training_label:
+                    self._train_accum.append(audio)
+                    if len(self._train_accum) >= REVIEW_WINDOW_BLOCKS:
+                        self._push_review_chunk(self.training_label)
+                        self._train_accum.clear()
+                else:
+                    if self._train_accum:
+                        self._train_accum.clear()   # cancelada grabación
+
+                # ── Acumulación para PREDICCIÓN (~500 ms por ventana) ─────────
+                self._pred_accum.append(audio)
+                if len(self._pred_accum) < PRED_WINDOW_BLOCKS:
+                    continue   # aún no hay suficiente audio
+
+                pred_audio = np.concatenate(list(self._pred_accum), axis=0)
+                self._pred_accum.clear()
+
+            except Exception:
+                continue
+
+            try:
+                features = self.extract_features(pred_audio)
                 if features is None:
                     continue
 
-                if self.training_mode and self.training_label:
-                    self.add_training_sample(features, self.training_label)
-
                 pred, conf = self.predict(features)
 
-                # ── Ventana de votación: suavizar con los últimos 5 bloques ──────
+                # ── Ventana de votación: suavizar entre las últimas N predicciones ─
                 self._pred_window.append((pred, conf))
                 votes = Counter(p for p, _ in self._pred_window)
                 voted_pred = votes.most_common(1)[0][0]
@@ -75,7 +99,7 @@ class StreamMixin:
                 else:
                     self.effective_prediction = voted_pred
 
-                # ── Estadísticas de sesión ─────────────────────────────────────────
+                # ── Estadísticas de sesión ────────────────────────────────────────
                 stats = self._session_stats
                 stats['blocks_processed'] += 1
                 eff = self.effective_prediction
@@ -100,13 +124,15 @@ class StreamMixin:
         # Guardar dispositivos para autostart
         self.save_last_devices(input_device, output_device)
 
-        # Limpiar cola de análisis y ventana de votación
+        # Limpiar cola de análisis, ventana de votación y acumuladores
         while not self._analysis_queue.empty():
             try:
                 self._analysis_queue.get_nowait()
             except queue.Empty:
                 break
         self._pred_window.clear()
+        self._pred_accum.clear()
+        self._train_accum.clear()
 
         # Reiniciar estadísticas de sesión
         self._session_stats = {

@@ -6,9 +6,9 @@ import pickle
 import time
 
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
 
-from .config import MODEL_FILE, SCALER_FILE, SAMPLES_FILE, DATA_DIR
+from .config import MODEL_FILE, SCALER_FILE, SAMPLES_FILE, DATA_DIR, FEATURE_DIM
 
 _PROFILES_FILE = DATA_DIR / "profiles.json"
 
@@ -156,11 +156,13 @@ class MLMixin:
             self.scaler.fit(X)
             X_scaled = self.scaler.transform(X)
 
-            self.model = RandomForestClassifier(
-                n_estimators=100,
-                max_depth=10,
+            self.model = GradientBoostingClassifier(
+                n_estimators=200,
+                learning_rate=0.08,
+                max_depth=4,
+                subsample=0.8,
+                min_samples_leaf=3,
                 random_state=42,
-                class_weight='balanced'
             )
             self.model.fit(X_scaled, y)
             self.model_trained = True
@@ -281,6 +283,15 @@ class MLMixin:
         try:
             if SAMPLES_FILE.exists():
                 with open(SAMPLES_FILE, 'r') as f:
-                    self.training_samples = json.load(f)
+                    raw = json.load(f)
+                # Descartar muestras con vector de features incompatible (formato anterior)
+                self.training_samples = [
+                    s for s in raw if len(s.get('features', [])) == FEATURE_DIM
+                ]
+                discarded = len(raw) - len(self.training_samples)
+                if discarded > 0 and getattr(self, 'on_status_update', None):
+                    self.on_status_update(
+                        f"⚠️ {discarded} muestras antiguas descartadas (features v1 → v2 — recoge nuevas muestras)"
+                    )
         except Exception:
             self.training_samples = []

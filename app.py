@@ -122,11 +122,17 @@ def on_status(msg):
     _push_js(f'onStatus("{safe}")')
 
 
+def on_review(rid, label, pending_count):
+    safe_label = label.replace("'", "\\'")
+    _push_js(f"onReviewUpdate({rid}, '{safe_label}', {pending_count})")
+
+
 # ─── Motor de audio ──────────────────────────────────────────────────────────
 engine = AudioEngine()
 engine.on_level_update      = on_level
 engine.on_prediction_update = on_prediction
 engine.on_status_update     = on_status
+engine.on_review_update     = on_review
 
 
 # ─── API expuesta a JavaScript (window.pywebview.api.*) ──────────────────────
@@ -241,6 +247,38 @@ class Api:
             counts['trained'] = engine.model_trained
             return {'ok': True, 'added': added, 'samples': counts}
         return {'ok': False, 'added': 0}
+
+    # ─── Revisión de muestras ─────────────────────────────────────────────────
+
+    def get_pending_review(self):
+        return engine.get_pending_review()
+
+    def play_sample(self, sample_id):
+        return engine.play_sample(int(sample_id))
+
+    def stop_playback(self):
+        return engine.stop_playback()
+
+    def confirm_sample(self, sample_id):
+        result = engine.confirm_sample(int(sample_id))
+        if result.get('added'):
+            mine, enemy, counts = engine.get_sample_count()
+            counts['trained'] = engine.model_trained
+            result['samples'] = counts
+        return result
+
+    def reject_sample(self, sample_id):
+        return engine.reject_sample(int(sample_id))
+
+    def confirm_all_pending(self, label=None):
+        result = engine.confirm_all_pending(label if label else None)
+        mine, enemy, counts = engine.get_sample_count()
+        counts['trained'] = engine.model_trained
+        result['samples'] = counts
+        return result
+
+    def reject_all_pending(self, label=None):
+        return engine.reject_all_pending(label if label else None)
 
     # ─── Perfiles de ganancia ─────────────────────────────────────────────────
 

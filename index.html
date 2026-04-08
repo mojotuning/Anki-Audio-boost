@@ -463,6 +463,43 @@
     margin-top: 6px;
   }
 
+  /* ─── Review panel ───────────────────────────────────────────── */
+  .review-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--red); color: #fff;
+    border-radius: 10px; padding: 1px 8px;
+    font-size: 10px; font-family: 'Share Tech Mono', monospace;
+    margin-left: 8px; min-width: 20px;
+    animation: pulse 1.5s infinite;
+  }
+
+  .review-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+  }
+
+  .rv-label {
+    display: inline-block;
+    padding: 2px 8px; border-radius: 3px;
+    font-size: 10px; font-family: 'Share Tech Mono', monospace;
+    letter-spacing: 1px; text-transform: uppercase;
+    font-weight: 600;
+  }
+  .rv-mine_feet  { background: rgba(255,204,0,0.15); color: var(--yellow); border: 1px solid rgba(255,204,0,0.35); }
+  .rv-mine_guns  { background: rgba(0,204,255,0.12); color: #00ccff;       border: 1px solid rgba(0,204,255,0.3);  }
+  .rv-enemy_feet { background: rgba(255,34,68,0.15);  color: var(--red);   border: 1px solid rgba(255,34,68,0.35); }
+  .rv-enemy_guns { background: rgba(255,102,0,0.15);  color: var(--orange);border: 1px solid rgba(255,102,0,0.35); }
+  .rv-airstrike  { background: rgba(255,80,80,0.12);  color: #ff5050;      border: 1px solid rgba(255,80,80,0.3);  }
+
+  .btn-reject {
+    background: rgba(255,34,68,0.15);
+    color: var(--red);
+    border: 1px solid rgba(255,34,68,0.35);
+  }
+  .btn-reject:hover { background: var(--red); color: #fff; box-shadow: var(--glow-r); }
+
   /* ─── Device select ──────────────────────────────────────────── */
   select {
     width: 100%;
@@ -871,7 +908,10 @@
 
       <!-- Entrenamiento ML -->
       <div class="panel" style="margin-bottom:16px">
-        <div class="panel-title">◎ Entrenamiento ML</div>
+        <div class="panel-title" style="display:flex;align-items:center;justify-content:space-between">
+          <span>◎ Entrenamiento ML</span>
+          <span id="reviewBadge" class="review-badge" style="display:none">0 pendientes</span>
+        </div>
 
         <p style="font-size:12px;color:var(--textdim);margin-bottom:14px;line-height:1.5">
           Pulsa el botón correspondiente <strong style="color:var(--text)">mientras escuchas ese sonido</strong>. Con ≥10 muestras por clase el modelo se entrena solo y empieza a funcionar automáticamente.
@@ -924,6 +964,27 @@
           <button class="btn btn-green" onclick="trainModel()">⚡ ENTRENAR AHORA</button>
           <button class="btn btn-dim"   onclick="clearSamples()">✕ LIMPIAR</button>
         </div>
+      </div>
+
+      <!-- Panel Revisión de Muestras -->
+      <div class="panel" id="reviewPanel" style="margin-bottom:16px;display:none">
+        <div class="panel-title" style="display:flex;align-items:center;justify-content:space-between">
+          <span>◉ Revisión de Muestras</span>
+          <span id="reviewPanelCount" style="font-size:11px;color:var(--textdim);font-family:'Share Tech Mono',monospace"></span>
+        </div>
+        <p style="font-size:12px;color:var(--textdim);margin-bottom:12px;line-height:1.5">
+          Escucha cada fragmento antes de añadirlo al modelo. Rechaza los que contengan ruido o sean incorrectos.
+        </p>
+
+        <!-- Acciones masivas -->
+        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+          <button class="btn btn-green" style="font-size:11px;padding:5px 12px" onclick="confirmAllReview()">✓ Confirmar todos</button>
+          <button class="btn btn-reject" style="font-size:11px;padding:5px 12px" onclick="rejectAllReview()">✗ Descartar todos</button>
+          <button class="btn btn-dim"   style="font-size:11px;padding:5px 12px" onclick="stopPlayback()">◼ Detener audio</button>
+        </div>
+
+        <!-- Lista de chunks pendientes -->
+        <div id="reviewList" style="display:flex;flex-direction:column;gap:8px"></div>
       </div>
 
       <!-- Panel Comunidad -->
@@ -1247,6 +1308,188 @@ function onHotkeyStartTraining(label) {
 function onHotkeyStopTraining() {
   stopTraining();
   log('[HOTKEY F6] Grabación detenida', 'ok');
+}
+
+// ─── Review de muestras ──────────────────────────────────────────────────
+
+const _LABEL_NAMES = {
+  mine_feet: 'Mis Pasos', mine_guns: 'Mis Disparos',
+  enemy_feet: 'Pasos Ene.', enemy_guns: 'Disp. Ene.', airstrike: 'Aéreo'
+};
+
+// Llamado por Python cuando hay un nuevo chunk listo para revisar
+function onReviewUpdate(id, label, pendingCount) {
+  _updateReviewBadge(pendingCount);
+  refreshReviewPanel();
+  const name = _LABEL_NAMES[label] || label;
+  log(`◉ Nuevo fragmento de "${name}" listo para revisión (${pendingCount} pendientes)`, 'warn');
+}
+
+function _updateReviewBadge(count) {
+  const badge = document.getElementById('reviewBadge');
+  const panel = document.getElementById('reviewPanel');
+  if (badge) {
+    badge.style.display = count > 0 ? 'inline-flex' : 'none';
+    badge.textContent = count + (count === 1 ? ' pendiente' : ' pendientes');
+  }
+  if (panel) {
+    panel.style.display = count > 0 ? '' : 'none';
+  }
+  const ctr = document.getElementById('reviewPanelCount');
+  if (ctr) ctr.textContent = count > 0 ? `${count} fragmento${count>1?'s':''} pendiente${count>1?'s':''}` : '';
+}
+
+function _drawMiniWaveform(canvasId, waveform) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !waveform || !waveform.length) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  const maxVal = Math.max(...waveform, 0.001);
+  const barW = W / waveform.length;
+  ctx.fillStyle = '#00ff6a66';
+  const midY = H / 2;
+  for (let i = 0; i < waveform.length; i++) {
+    const h = (waveform[i] / maxVal) * midY;
+    ctx.fillRect(i * barW, midY - h, Math.max(barW - 0.5, 0.5), h * 2);
+  }
+}
+
+async function refreshReviewPanel() {
+  let items = [];
+  try {
+    items = await window.pywebview.api.get_pending_review();
+  } catch(e) { return; }
+
+  _updateReviewBadge(items.length);
+
+  const list = document.getElementById('reviewList');
+  if (!list) return;
+  list.innerHTML = '';
+
+  if (!items.length) return;
+
+  for (const item of items) {
+    const { id, label, rms, duration_ms, waveform } = item;
+    const labelCls  = 'rv-' + label;
+    const labelName = _LABEL_NAMES[label] || label;
+    const rmsColor  = rms > 60 ? 'var(--red)' : rms > 30 ? 'var(--yellow)' : 'var(--green)';
+    const rmsWidth  = Math.min(rms * 1.5, 100).toFixed(1);
+
+    const card = document.createElement('div');
+    card.className = 'review-card';
+    card.id = 'rc-' + id;
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <span class="rv-label ${labelCls}">${labelName}</span>
+        <span style="font-size:10px;color:var(--textdim);font-family:'Share Tech Mono',monospace">${duration_ms}ms</span>
+        <div style="flex:1;background:var(--bg3);height:5px;border-radius:2px;min-width:40px">
+          <div style="width:${rmsWidth}%;height:100%;background:${rmsColor};border-radius:2px;transition:width .3s"></div>
+        </div>
+        <span style="font-size:10px;color:${rmsColor};font-family:'Share Tech Mono',monospace">${rms}%</span>
+      </div>
+      <canvas id="wv-${id}" width="400" height="36"
+        style="width:100%;height:36px;display:block;margin-bottom:8px;border-radius:2px;background:var(--bg3)"></canvas>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-dim" id="play-${id}" style="font-size:11px;padding:4px 12px"
+          onclick="playReviewSample(${id}, this)">▶ ESCUCHAR</button>
+        <button class="btn btn-green" style="font-size:11px;padding:4px 12px"
+          onclick="confirmSampleReview(${id})">✓ CONFIRMAR</button>
+        <button class="btn btn-reject" style="font-size:11px;padding:4px 12px"
+          onclick="rejectSampleReview(${id})">✗ DESCARTAR</button>
+      </div>`;
+    list.appendChild(card);
+
+    // Dibujar waveform después de insertar el canvas en el DOM
+    if (waveform && waveform.length) {
+      requestAnimationFrame(() => _drawMiniWaveform('wv-' + id, waveform));
+    }
+  }
+}
+
+let _playingId = null;
+
+async function playReviewSample(id, btn) {
+  // Si ya estamos reproduciendo este ID, detener
+  if (_playingId === id) {
+    stopPlayback();
+    if (btn) { btn.textContent = '▶ ESCUCHAR'; btn.classList.remove('btn-green'); }
+    _playingId = null;
+    return;
+  }
+  // Restaurar botón del anterior
+  if (_playingId !== null) {
+    const prevBtn = document.getElementById('play-' + _playingId);
+    if (prevBtn) { prevBtn.textContent = '▶ ESCUCHAR'; prevBtn.classList.remove('btn-green'); }
+  }
+  try {
+    await window.pywebview.api.play_sample(id);
+    _playingId = id;
+    if (btn) { btn.textContent = '◼ DETENER'; btn.classList.add('btn-green'); }
+    // Auto-reset tras la duración del clip
+    const card = document.getElementById('rc-' + id);
+    const durationEl = card ? card.querySelector('span[style*="10px"]') : null;
+    const ms = durationEl ? parseInt(durationEl.textContent) : 600;
+    setTimeout(() => {
+      if (_playingId === id) {
+        _playingId = null;
+        if (btn) { btn.textContent = '▶ ESCUCHAR'; btn.classList.remove('btn-green'); }
+      }
+    }, ms + 200);
+  } catch(e) {
+    log('Error reproduciendo: ' + e, 'err');
+  }
+}
+
+async function stopPlayback() {
+  _playingId = null;
+  try { await window.pywebview.api.stop_playback(); } catch(e) {}
+}
+
+async function confirmSampleReview(id) {
+  try {
+    const d = await window.pywebview.api.confirm_sample(id);
+    if (d.ok) {
+      document.getElementById('rc-' + id)?.remove();
+      if (d.samples) updateSampleUI(d.samples);
+      const remaining = document.getElementById('reviewList')?.children.length || 0;
+      _updateReviewBadge(remaining);
+      log(`✓ Fragmento confirmado y añadido al modelo`, 'ok');
+      if (remaining === 0) log('✅ Revisión completada — entrena el modelo para activar los cambios', 'ok');
+    }
+  } catch(e) { log('Error confirmando: ' + e, 'err'); }
+}
+
+async function rejectSampleReview(id) {
+  try {
+    await window.pywebview.api.reject_sample(id);
+    document.getElementById('rc-' + id)?.remove();
+    const remaining = document.getElementById('reviewList')?.children.length || 0;
+    _updateReviewBadge(remaining);
+    log(`✗ Fragmento descartado`, 'warn');
+  } catch(e) { log('Error descartando: ' + e, 'err'); }
+}
+
+async function confirmAllReview() {
+  try {
+    const d = await window.pywebview.api.confirm_all_pending();
+    if (d.added > 0) {
+      if (d.samples) updateSampleUI(d.samples);
+      log(`✓ ${d.added} fragmento${d.added>1?'s':''} confirmado${d.added>1?'s':''} y añadidos al modelo`, 'ok');
+    }
+    refreshReviewPanel();
+    _updateReviewBadge(0);
+  } catch(e) { log('Error: ' + e, 'err'); }
+}
+
+async function rejectAllReview() {
+  if (!confirm('¿Descartar todos los fragmentos pendientes?')) return;
+  try {
+    await window.pywebview.api.reject_all_pending();
+    log('✗ Todos los fragmentos descartados', 'warn');
+    refreshReviewPanel();
+    _updateReviewBadge(0);
+  } catch(e) { log('Error: ' + e, 'err'); }
 }
 
 // (legacy — ya no se usa para grabación, pero se mantiene por si acaso)

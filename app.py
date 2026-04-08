@@ -35,6 +35,7 @@ _HOTKEY_LABELS = {
     'f4': 'enemy_guns',
     'f5': 'airstrike',
 }
+_HOTKEY_STOP_TRAINING = 'f6'
 _hotkeys_registered = False
 
 
@@ -49,12 +50,21 @@ def _do_hotkey_label(label):
     _push_js(f'onHotkeyLabel("{safe}")')
 
 
+def _do_hotkey_stop_training():
+    if not engine.running:
+        return
+    if engine.training_mode:
+        engine.set_training_mode(False)
+        _push_js('onHotkeyStopTraining()')
+
+
 def _register_hotkeys():
     global _hotkeys_registered
     if not _KEYBOARD_AVAILABLE or _hotkeys_registered:
         return
     for key, label in _HOTKEY_LABELS.items():
         _keyboard.add_hotkey(key, _do_hotkey_label, args=(label,), suppress=False)
+    _keyboard.add_hotkey(_HOTKEY_STOP_TRAINING, _do_hotkey_stop_training, suppress=False)
     _hotkeys_registered = True
 
 
@@ -67,6 +77,10 @@ def _unregister_hotkeys():
             _keyboard.remove_hotkey(key)
         except Exception:
             pass
+    try:
+        _keyboard.remove_hotkey(_HOTKEY_STOP_TRAINING)
+    except Exception:
+        pass
     _hotkeys_registered = False
 
 # ─── Ventana global (se asigna después de create_window) ─────────────────────

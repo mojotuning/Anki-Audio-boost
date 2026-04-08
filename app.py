@@ -234,7 +234,7 @@ class Api:
             _push_js(f'onUpdateProgress({{"status":"error","msg":"{err}"}})')
 
 
-VERSION = '1.3.7'
+VERSION = '1.3.8'
 
 # ─── Entrypoint ──────────────────────────────────────────────────────────────
 def _html_path():

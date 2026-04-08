@@ -512,9 +512,13 @@ class AudioEngine:
 # ─── Utilidades ──────────────────────────────────────────────────────────────
 def list_audio_devices():
     """
-    Lista dispositivos WASAPI + virtuales.
-    Para cada dispositivo de salida WASAPI puro añade una variante con
-    id='L{i}' que abre WASAPI loopback: captura lo que suena sin conflictos.
+    Devuelve una lista limpia y deduplicada de dispositivos de audio.
+    Reglas:
+      1. Solo WASAPI (evita duplicados MME/DirectSound del mismo hardware).
+      2. Si WASAPI no está disponible, acepta cualquier API.
+      3. Deduplica por nombre — si el mismo nombre aparece dos veces solo
+         se queda el primero (que tiene más canales disponibles en WASAPI).
+      4. Descarta dispositivos sin canales útiles.
     """
     devices   = sd.query_devices()
     host_apis = sd.query_hostapis()
@@ -523,42 +527,43 @@ def list_audio_devices():
         (i for i, a in enumerate(host_apis) if 'wasapi' in a['name'].lower()), None
     )
 
-    VIRTUAL_KEYWORDS = ('voicemeeter', 'vb-audio', 'vb audio', 'cable', 'virtual',
-                        'blackhole', 'loopback', 'soundflower')
-
-    def _is_virtual(name):
-        nl = name.lower()
-        return any(k in nl for k in VIRTUAL_KEYWORDS)
-
+    seen_names = {}   # nombre_lower → índice ya añadido
     result = []
-    for i, d in enumerate(devices):
-        api_name  = host_apis[d['hostapi']]['name'] if d['hostapi'] < len(host_apis) else ''
-        is_wasapi = (d['hostapi'] == wasapi_idx)
-        is_virt   = _is_virtual(d['name'])
 
-        if not is_wasapi and not is_virt:
+    for i, d in enumerate(devices):
+        # Filtrar por WASAPI si está disponible
+        if wasapi_idx is not None and d['hostapi'] != wasapi_idx:
             continue
+
+        # Descartar sin canales útiles
         if d['max_input_channels'] == 0 and d['max_output_channels'] == 0:
             continue
 
+        name_lower = d['name'].lower().strip()
+
+        # Deduplicar por nombre — si ya existe, quedarse con el que tenga más canales
+        if name_lower in seen_names:
+            existing = result[seen_names[name_lower]]
+            if (d['max_input_channels'] + d['max_output_channels'] >
+                    existing['inputs'] + existing['outputs']):
+                # Reemplazar si este tiene más canales
+                result[seen_names[name_lower]] = {
+                    'id':       i,
+                    'name':     d['name'],
+                    'inputs':   d['max_input_channels'],
+                    'outputs':  d['max_output_channels'],
+                    'default_sr': int(d['default_samplerate']),
+                }
+            continue
+
+        seen_names[name_lower] = len(result)
         result.append({
-            'id':         i,
-            'name':       d['name'],
-            'inputs':     d['max_input_channels'],
-            'outputs':    d['max_output_channels'],
+            'id':       i,
+            'name':     d['name'],
+            'inputs':   d['max_input_channels'],
+            'outputs':  d['max_output_channels'],
             'default_sr': int(d['default_samplerate']),
-            'host_api':   api_name,
-            'virtual':    is_virt,
-            'loopback':   False,
-            # Voicemeeter virtual playback devices: safe as app output
-            # (never occupied, Voicemeeter routes them to hardware A1/A2)
-            'vm_out':     is_virt and d['max_output_channels'] > 0
-                          and 'voicemeeter' in d['name'].lower()
-                          and 'output' not in d['name'].lower(),
-            'hardware':   not is_virt,
         })
-
-
 
     return result
 

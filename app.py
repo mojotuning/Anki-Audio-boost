@@ -98,6 +98,10 @@ class Api:
         engine.set_noise_config(config)
         return {'ok': True}
 
+    def set_buffer_size(self, size):
+        engine.set_buffer_size(int(size))
+        return {'block_size': engine.block_size}
+
     def start_training(self, label):
         engine.set_training_mode(True, label)
         return {'training': True, 'label': label}
@@ -238,7 +242,7 @@ class Api:
             _push_js(f'onUpdateProgress({{"status":"error","msg":"{err}"}})')
 
 
-VERSION = '1.4.0'
+VERSION = '1.4.1'
 
 # ─── Entrypoint ──────────────────────────────────────────────────────────────
 def _html_path():

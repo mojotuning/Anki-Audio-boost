@@ -79,6 +79,9 @@ class AudioEngine:
         self.last_prediction = "unknown"
         self.prediction_confidence = 0.0
         
+        # Buffering (equivalente al WDM buffer de Voicemeeter)
+        self.block_size = BLOCK_SIZE   # configurable desde la UI sin reiniciar
+
         # Callbacks para la UI
         self.on_level_update = None
         self.on_prediction_update = None
@@ -162,6 +165,15 @@ class AudioEngine:
         # Audio original sin esa banda + banda con ganancia aplicada
         return audio - band + (band * gain_linear)
     
+    def set_buffer_size(self, size: int):
+        """Cambia el tamaño del buffer de audio (equivalente a WDM Buffering en Voicemeeter).
+        Valores comunes: 256 (mínima latencia), 512, 1024, 2048 (máxima estabilidad).
+        Aplica al siguiente Start; no interrumpe el stream en curso.
+        """
+        valid = (128, 256, 512, 1024, 2048)
+        if size in valid:
+            self.block_size = size
+
     def set_noise_config(self, config: dict):
         """Actualiza parámetros de reducción de ruido desde la UI."""
         self.noise_config.update(config)
@@ -445,7 +457,7 @@ class AudioEngine:
                 try:
                     self.stream = sd.Stream(
                         samplerate=sr,
-                        blocksize=BLOCK_SIZE,
+                        blocksize=self.block_size,
                         dtype=np.float32,
                         channels=(max(in_ch, 1), max(out_ch, 1)),
                         device=(input_device, output_device),
@@ -468,12 +480,12 @@ class AudioEngine:
         _in_cb2, _out_cb2 = _make_separate_callbacks(in_ch, out_ch)
         try:
             self._in_stream = sd.InputStream(
-                samplerate=best_sr, blocksize=BLOCK_SIZE, dtype=np.float32,
+                samplerate=best_sr, blocksize=self.block_size, dtype=np.float32,
                 channels=max(in_ch, 1), device=input_device,
                 callback=_in_cb2, latency='high',
             )
             self._out_stream = sd.OutputStream(
-                samplerate=best_sr, blocksize=BLOCK_SIZE, dtype=np.float32,
+                samplerate=best_sr, blocksize=self.block_size, dtype=np.float32,
                 channels=max(out_ch, 1), device=output_device,
                 callback=_out_cb2, latency='high',
             )

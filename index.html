@@ -803,6 +803,26 @@
         <div>
 
           <div class="panel" style="margin-bottom:16px">
+            <div class="panel-title">◎ Buffering WDM</div>
+            <p style="font-size:12px;color:var(--textdim);margin-bottom:14px;line-height:1.5">
+              Igual que el <strong style="color:var(--text)">Buffering WDM</strong> de Voicemeeter.
+              Un buffer más grande elimina la estática y los cortes, a costa de un poco más de latencia.
+              <strong style="color:var(--green)">512 o 1024</strong> son los más estables.
+              Cambia y pulsa <strong style="color:var(--text)">ACTIVAR</strong> para aplicar.
+            </p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+              <button class="btn btn-dim" id="buf128"  onclick="setBuffer(128)">128</button>
+              <button class="btn btn-dim" id="buf256"  onclick="setBuffer(256)">256</button>
+              <button class="btn btn-green" id="buf512"  onclick="setBuffer(512)">512 ✓</button>
+              <button class="btn btn-dim" id="buf1024" onclick="setBuffer(1024)">1024</button>
+              <button class="btn btn-dim" id="buf2048" onclick="setBuffer(2048)">2048</button>
+            </div>
+            <div style="margin-top:10px;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--textdim)">
+              Buffer actual: <span id="bufLabel" style="color:var(--green)">512 samples @ 48000 Hz = ~10.7 ms</span>
+            </div>
+          </div>
+
+          <div class="panel" style="margin-bottom:16px">
             <div class="panel-title">◈ Reducción de Ruido / Estática</div>
 
             <div class="noise-row">
@@ -1178,6 +1198,24 @@ function updateGain(key, val, labelId) {
       await window.pywebview.api.set_gains({ [key]: parseFloat(val) });
     } catch(e) {}
   }, 300);
+}
+
+// ─── Buffering WDM ───────────────────────────────────────────────────────
+let _currentBuffer = 512;
+async function setBuffer(size) {
+  _currentBuffer = size;
+  // Resaltar botón activo
+  [128, 256, 512, 1024, 2048].forEach(s => {
+    const b = document.getElementById('buf' + s);
+    if (b) { b.className = s === size ? 'btn btn-green' : 'btn btn-dim'; b.textContent = String(s) + (s===size?' ✓':''); }
+  });
+  const ms = (size / 48000 * 1000).toFixed(1);
+  const lbl = document.getElementById('bufLabel');
+  if (lbl) lbl.textContent = `${size} samples @ 48000 Hz = ~${ms} ms`;
+  try {
+    await window.pywebview.api.set_buffer_size(size);
+    log(`Buffer WDM: ${size} samples (~${ms} ms) — pulsa ACTIVAR para aplicar`, 'ok');
+  } catch(e) {}
 }
 
 // ─── Reducción de ruido ───────────────────────────────────────────────────

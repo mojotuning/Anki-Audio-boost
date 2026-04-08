@@ -66,8 +66,7 @@ class Api:
         return detect_audio_software()
 
     def start_engine(self, input_device=None, output_device=None):
-        # input_device puede ser 'L{n}' para loopback — no convertir a int aquí
-        inp = input_device if input_device is not None else None
+        inp = int(input_device) if input_device is not None else None
         out = int(output_device) if output_device is not None else None
         success, err = engine.start(input_device=inp, output_device=out)
         return {'success': success, 'running': engine.running, 'error': err}
@@ -235,7 +234,7 @@ class Api:
             _push_js(f'onUpdateProgress({{"status":"error","msg":"{err}"}})')
 
 
-VERSION = '1.3.6'
+VERSION = '1.3.7'
 
 # ─── Entrypoint ──────────────────────────────────────────────────────────────
 def _html_path():

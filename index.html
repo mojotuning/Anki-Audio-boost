@@ -943,8 +943,7 @@ async function loadDevices() {
 
     const sameWarn = document.getElementById('sameDevWarn');
     const checkSame = () => {
-      const inputBase = inp.value.startsWith('L') ? inp.value.slice(1) : inp.value;
-      if (sameWarn) sameWarn.style.display = (inputBase && out.value && inputBase === out.value) ? 'block' : 'none';
+      if (sameWarn) sameWarn.style.display = (inp.value && out.value && inp.value === out.value) ? 'block' : 'none';
     };
     inp.addEventListener('change', checkSame);
     out.addEventListener('change', checkSame);
@@ -1009,15 +1008,13 @@ async function startEngine() {
   if (!input || !output) {
     log('Selecciona input y output primero', 'warn'); return;
   }
-  const inputBaseId = input.startsWith('L') ? input.slice(1) : input;
-  if (inputBaseId === output) {
-    log('[!] INPUT y OUTPUT son el mismo dispositivo — esto causa estática. Selecciona dispositivos distintos.', 'warn');
+  if (input === output) {
+    log('[!] INPUT y OUTPUT son el mismo dispositivo.', 'warn');
     return;
   }
 
   try {
-    // input puede ser 'L{n}' para loopback — NO parsear como entero
-    const d = await window.pywebview.api.start_engine(input, parseInt(output));
+    const d = await window.pywebview.api.start_engine(parseInt(input), parseInt(output));
     if (d.success) {
       isRunning = true;
       setRunningState(true);

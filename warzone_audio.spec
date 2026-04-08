@@ -35,6 +35,8 @@ a = Analysis(
         'sklearn.utils',
         'sklearn.utils._bunch',
         'sklearn.preprocessing',
+        'sklearn.metrics',
+        'sklearn.metrics._classification',
         # scipy
         'scipy',
         'scipy.signal',
@@ -64,6 +66,21 @@ a = Analysis(
         # SSL / HTTPS
         'certifi',
         'ssl',
+        # Hotkeys y bandeja del sistema
+        'keyboard',
+        'pystray',
+        'PIL',
+        'PIL.Image',
+        'PIL.ImageDraw',
+        # Engine package
+        'engine',
+        'engine.core',
+        'engine.ml',
+        'engine.stream',
+        'engine.filters',
+        'engine.features',
+        'engine.devices',
+        'engine.config',
     ],
     hookspath=[],
     hooksconfig={},

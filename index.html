@@ -228,6 +228,10 @@
   .pred-label.enemy_guns { color: var(--red);    text-shadow: var(--glow-r); }
   .pred-label.airstrike  { color: #ff8800;       text-shadow: 0 0 16px #ff880066; }
   .pred-label.unknown    { color: var(--textdim); }
+  /* Confidence tiers: overlay opacity on top of class color */
+  .pred-label.conf-high  { opacity: 1; }
+  .pred-label.conf-med   { opacity: 0.65; }
+  .pred-label.conf-low   { opacity: 0.35; color: var(--textdim) !important; text-shadow: none !important; }
 
   .pred-conf {
     font-family: 'Share Tech Mono', monospace;
@@ -236,6 +240,48 @@
     letter-spacing: 2px;
     margin-top: 4px;
   }
+
+  /* ─── Live indicator ─────────────────────────────────────────── */
+  .pred-live-dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--green3);
+    margin-right: 6px;
+    vertical-align: middle;
+    opacity: 0.3;
+    transition: opacity 0.1s;
+  }
+  .pred-live-dot.pulse {
+    opacity: 1;
+    box-shadow: 0 0 8px var(--green3);
+  }
+
+  /* ─── Prediction history chips ──────────────────────────────── */
+  .pred-history {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: center;
+    margin-top: 8px;
+    min-height: 22px;
+  }
+  .pred-chip {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    opacity: 0.55;
+  }
+  .pred-chip:last-child { opacity: 1; border-color: var(--green3); }
+  .pred-chip.mine_feet,  .pred-chip.mine  { color: var(--yellow); border-color: #ffcc0044; }
+  .pred-chip.mine_guns                    { color: var(--yellow); border-color: #ffcc0044; }
+  .pred-chip.enemy_feet, .pred-chip.enemy { color: var(--red);    border-color: #ff003344; }
+  .pred-chip.enemy_guns                   { color: var(--red);    border-color: #ff003344; }
+  .pred-chip.airstrike                    { color: #ff8800;       border-color: #ff880044; }
+  .pred-chip.unknown                      { color: var(--textdim); }
 
   /* ─── Sliders ────────────────────────────────────────────────── */
   .slider-row {
@@ -627,6 +673,7 @@
     <div class="app-topbar">
       <span class="page-title" id="pageTitle">◈ HOME // AUDIO ENGINE</span>
       <span style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--textdim)" id="topbarVersion">...</span>
+      <button class="btn btn-dim" style="padding:3px 10px;font-size:10px;margin-left:8px" onclick="minimizeToTray()" title="Minimizar a la bandeja del sistema">⬡ BANDEJA</button>
     </div>
     <div class="app-content">
 
@@ -655,6 +702,10 @@
         <div class="btn-row" style="margin-top:12px">
           <button class="btn btn-green" id="startBtn" onclick="startEngine()">▶ ACTIVAR</button>
           <button class="btn btn-red"   id="stopBtn"  onclick="stopEngine()" disabled>■ DETENER</button>
+          <button class="btn btn-dim"   id="bypassBtn" onclick="toggleBypass()" title="Bypass: desactiva todo el procesamiento de EQ y deja pasar el audio sin modificar">⊘ BYPASS</button>
+        </div>
+        <div id="autostartRow" style="display:none;margin-top:8px">
+          <button class="btn btn-green" style="width:100%;letter-spacing:2px" onclick="doAutostart()">⚡ REANUDAR ÚLTIMA SESIÓN</button>
         </div>
         <!-- Software detectado -->
         <div id="compatPanel" style="margin-top:14px;display:none">
@@ -677,9 +728,35 @@
 
         <!-- Predicción ML -->
         <div class="prediction-box" style="margin-top:12px">
-          <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:3px;color:var(--textdim);margin-bottom:8px">CLASIFICACIÓN ML</div>
+          <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:3px;color:var(--textdim);margin-bottom:8px">
+            <span class="pred-live-dot" id="predLiveDot"></span>CLASIFICACIÓN ML
+          </div>
           <div class="pred-label unknown" id="predLabel">ANALIZANDO</div>
           <div class="pred-conf" id="predConf">CONFIANZA: --.--%</div>
+          <div class="pred-history" id="predHistory"></div>
+        </div>
+
+        <!-- Timeline 30s -->
+        <div style="margin-top:10px">
+          <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--textdim);margin-bottom:4px">TIMELINE — 30 s</div>
+          <canvas id="timelineCanvas" height="18" style="width:100%;border-radius:3px;display:block;background:#060d09"></canvas>
+          <div id="timelineLegend" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:1px"></div>
+        </div>
+
+        <!-- Etiquetado retroactivo -->
+        <div style="margin-top:12px">
+          <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--textdim);margin-bottom:6px">← ETIQUETAR ÚLTIMOS 3s</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            <button class="btn btn-dim" style="font-size:10px;padding:4px 8px" onclick="labelRecent('mine_feet')">👟 Mis Pasos</button>
+            <button class="btn btn-dim" style="font-size:10px;padding:4px 8px" onclick="labelRecent('mine_guns')">🔫 Mis Disparos</button>
+            <button class="btn btn-dim" style="font-size:10px;padding:4px 8px" onclick="labelRecent('enemy_feet')">☠ Pasos Ene.</button>
+            <button class="btn btn-dim" style="font-size:10px;padding:4px 8px" onclick="labelRecent('enemy_guns')">💥 Disparos Ene.</button>
+            <button class="btn btn-dim" style="font-size:10px;padding:4px 8px" onclick="labelRecent('airstrike')">✈ Aéreo</button>
+          </div>
+          <div id="labelRecentStatus" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--green3);margin-top:4px;min-height:14px"></div>
+          <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--textdim);margin-top:6px;letter-spacing:1px">
+            Hotkeys globales (con el juego en pantalla): <span style="color:var(--green3)">F1</span> Mis Pasos · <span style="color:var(--green3)">F2</span> Mis Disparos · <span style="color:var(--green3)">F3</span> Pasos Ene. · <span style="color:var(--green3)">F4</span> Disp. Ene. · <span style="color:var(--green3)">F5</span> Aéreo
+          </div>
         </div>
 
         <div class="stats">
@@ -712,9 +789,9 @@
             Pasos Enemigos
             <small>80 – 600 Hz | BOOST</small>
           </div>
-          <input type="range" id="gainEnemyFeet" min="0.1" max="10" step="0.1" value="3.0"
-                 oninput="updateGain('enemy_footsteps', this.value, 'valEF')">
-          <span class="slider-val" id="valEF">3.0×</span>
+          <input type="range" id="gainEnemyFeet" min="-20" max="12" step="0.5" value="4"
+                 oninput="updateGainDb('enemy_footsteps', this.value, 'valEF')">
+          <span class="slider-val" id="valEF">+4 dB</span>
         </div>
 
         <div class="slider-row">
@@ -722,9 +799,9 @@
             Pasos Propios
             <small>80 – 600 Hz | SILENCIAR</small>
           </div>
-          <input type="range" id="gainOwnFeet" min="0.01" max="1.0" step="0.01" value="0.1"
-                 oninput="updateGain('own_footsteps', this.value, 'valOF')">
-          <span class="slider-val" id="valOF">0.1×</span>
+          <input type="range" id="gainOwnFeet" min="-30" max="0" step="0.5" value="-20"
+                 oninput="updateGainDb('own_footsteps', this.value, 'valOF')">
+          <span class="slider-val" id="valOF">-20 dB</span>
         </div>
 
         <div class="slider-row">
@@ -732,19 +809,19 @@
             Mis Disparos
             <small>600 – 4000 Hz | ATENUAR</small>
           </div>
-          <input type="range" id="gainOwnGuns" min="0.01" max="1.0" step="0.01" value="0.1"
-                 oninput="updateGain('own_gunshots', this.value, 'valOG')">
-          <span class="slider-val" id="valOG">0.1×</span>
+          <input type="range" id="gainOwnGuns" min="-30" max="0" step="0.5" value="-20"
+                 oninput="updateGainDb('own_gunshots', this.value, 'valOG')">
+          <span class="slider-val" id="valOG">-20 dB</span>
         </div>
 
         <div class="slider-row">
           <div class="slider-label">
             Disparos Enemigos
-            <small>600 – 4000 Hz</small>
+            <small>600 – 4000 Hz | BOOST</small>
           </div>
-          <input type="range" id="gainGuns" min="0.1" max="8" step="0.1" value="2.0"
-                 oninput="updateGain('enemy_gunshots', this.value, 'valG')">
-          <span class="slider-val" id="valG">2.0×</span>
+          <input type="range" id="gainGuns" min="-20" max="12" step="0.5" value="3"
+                 oninput="updateGainDb('enemy_gunshots', this.value, 'valG')">
+          <span class="slider-val" id="valG">+3 dB</span>
         </div>
 
         <div class="slider-row">
@@ -752,19 +829,43 @@
             Ataques Aéreos (detectados)
             <small>40 – 200 Hz | ATENUAR cuando se detectan</small>
           </div>
-          <input type="range" id="gainAirVol" min="0.01" max="1.0" step="0.01" value="0.15"
-                 oninput="updateGain('airstrike_vol', this.value, 'valAV')">
-          <span class="slider-val" id="valAV">0.15×</span>
+          <input type="range" id="gainAirVol" min="-30" max="0" step="0.5" value="-16"
+                 oninput="updateGainDb('airstrike_vol', this.value, 'valAV')">
+          <span class="slider-val" id="valAV">-16 dB</span>
         </div>
 
         <div class="slider-row">
           <div class="slider-label">
             Ataques Aéreos (boost)
-            <small>40 – 200 Hz | SUB-GRAVES cuando enemigos</small>
+            <small>40 – 200 Hz | cuando NO detectados</small>
           </div>
-          <input type="range" id="gainAir" min="0.1" max="8" step="0.1" value="2.5"
-                 oninput="updateGain('airstrikes', this.value, 'valA')">
-          <span class="slider-val" id="valA">2.5×</span>
+          <input type="range" id="gainAir" min="-20" max="12" step="0.5" value="3"
+                 oninput="updateGainDb('airstrikes', this.value, 'valA')">
+          <span class="slider-val" id="valA">+3 dB</span>
+        </div>
+
+        <!-- Umbral de confianza ML -->
+        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+          <div class="slider-row">
+            <div class="slider-label">
+              Umbral de confianza ML
+              <small>Si el modelo no supera este % → usa boost genérico en vez de clase detectada</small>
+            </div>
+            <input type="range" id="confidenceThreshold" min="0" max="100" step="5" value="60"
+                   oninput="updateConfidenceThreshold(this.value)">
+            <span class="slider-val" id="valConf">60%</span>
+          </div>
+        </div>
+
+        <!-- Perfiles de ganancia -->
+        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+          <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:3px;color:var(--textdim);margin-bottom:8px">PERFILES</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <input type="text" id="profileName" placeholder="nombre del perfil"
+              style="flex:1;min-width:100px;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:5px 8px;font-family:'Share Tech Mono',monospace;font-size:11px;border-radius:3px">
+            <button class="btn btn-dim" style="padding:5px 10px;font-size:11px" onclick="saveProfile()">💾 Guardar</button>
+          </div>
+          <div id="profileList" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
         </div>
       </div>
 
@@ -823,6 +924,37 @@
           <button class="btn btn-green" onclick="trainModel()">⚡ ENTRENAR AHORA</button>
           <button class="btn btn-dim"   onclick="clearSamples()">✕ LIMPIAR</button>
         </div>
+      </div>
+
+      <!-- Panel Comunidad -->
+      <div class="panel" style="margin-bottom:16px">
+        <div class="panel-title">◈ Modelo Comunitario</div>
+        <p style="font-size:12px;color:var(--textdim);margin-bottom:14px;line-height:1.5">
+          Comparte tu entrenamiento con todos los jugadores o descarga el modelo entrenado por la comunidad.
+        </p>
+
+        <div id="communityStatus" style="font-size:12px;color:var(--textdim);margin-bottom:12px;min-height:18px"></div>
+
+        <div class="btn-row" style="flex-wrap:wrap;gap:8px">
+          <button class="btn btn-green" onclick="downloadCommunityModel()" id="btnDlModel">
+            ⬇ Descargar modelo comunitario
+          </button>
+          <button class="btn btn-dim" onclick="downloadCommunitySamples()" id="btnDlSamples">
+            ⬇ Fusionar muestras comunitarias
+          </button>
+          <button class="btn btn-dim" onclick="publishToCommunity()" id="btnPublish">
+            ⬆ Publicar mi modelo
+          </button>
+          <button class="btn btn-dim" onclick="submitSamples()" id="btnSubmit">
+            ✉ Enviar mis muestras
+          </button>
+        </div>
+        <p style="font-size:10px;color:var(--textdim);margin-top:10px;line-height:1.4">
+          <strong style="color:var(--text)">Descargar modelo</strong> — instala el modelo ya entrenado por otros (sin necesidad de entrenar tú mismo).<br>
+          <strong style="color:var(--text)">Fusionar muestras</strong> — descarga muestras comunitarias, las combina con las tuyas y reentrena localmente.<br>
+          <strong style="color:var(--text)">Publicar modelo</strong> — sube tu modelo al repositorio para que otros lo descarguen (requiere cuenta de GitHub).<br>
+          <strong style="color:var(--text)">Enviar muestras</strong> — contribuye tus muestras sin necesidad de publicar el modelo completo.
+        </p>
       </div>
 
     </div>
@@ -1055,16 +1187,65 @@ const PRED_LABELS = {
   unknown:    'ANALIZANDO',
 };
 
+// Historial de últimas N predicciones
+const PRED_HISTORY_MAX = 8;
+const _predHistory = [];
+
 function onPrediction(pred, conf) {
   const el = document.getElementById('predLabel');
   el.textContent = PRED_LABELS[pred] || pred.toUpperCase();
-  el.className = 'pred-label ' + (pred || 'unknown');
+  // Confidence color tier: green (>80%), yellow (threshold–80%), gray (<threshold)
+  const _thresh = parseFloat(document.getElementById('confidenceThreshold')?.value || 60) / 100;
+  let confClass = 'conf-low';
+  if (pred !== 'unknown') {
+    if (conf >= 0.80) confClass = 'conf-high';
+    else if (conf >= _thresh) confClass = 'conf-med';
+  }
+  el.className = 'pred-label ' + (pred || 'unknown') + ' ' + confClass;
   document.getElementById('predConf').textContent =
-    `CONFIANZA: ${(conf * 100).toFixed(1)}%`;
+    pred === 'unknown'
+      ? 'CONFIANZA: --.--%'
+      : `CONFIANZA: ${(conf * 100).toFixed(1)}%`;
+
+  // Pulsar el dot verde
+  const dot = document.getElementById('predLiveDot');
+  if (dot) {
+    dot.classList.add('pulse');
+    clearTimeout(dot._pulseTimer);
+    dot._pulseTimer = setTimeout(() => dot.classList.remove('pulse'), 350);
+  }
+
+  // Timeline
+  _timelinePush(pred);
+
+  // Añadir al historial (solo si la clase cambió o es la primera entrada)
+  if (pred !== 'unknown' && (_predHistory.length === 0 || _predHistory[_predHistory.length - 1].pred !== pred)) {
+    _predHistory.push({ pred, conf });
+    if (_predHistory.length > PRED_HISTORY_MAX) _predHistory.shift();
+    const hist = document.getElementById('predHistory');
+    if (hist) {
+      hist.innerHTML = _predHistory.map((e, i) => {
+        const label = (PRED_LABELS[e.pred] || e.pred).replace('MIS ', '').replace(' ENEMIGO', ' ENE.');
+        return `<span class="pred-chip ${e.pred}">${label}</span>`;
+      }).join('');
+    }
+  }
 }
 
 function onStatus(msg) {
   log(msg);
+}
+
+// Llamado por Python cuando se presiona hotkey F1-F5
+function onHotkeyLabel(msg) {
+  log(msg, 'ok');
+  // Parpadear el panel de etiquetado retroactivo como feedback visual
+  const el = document.getElementById('labelRecentStatus');
+  if (el) {
+    el.textContent = msg;
+    clearTimeout(el._ht);
+    el._ht = setTimeout(() => { el.textContent = ''; }, 2500);
+  }
 }
 
 // ─── Waveform canvas ──────────────────────────────────────────────────────
@@ -1211,6 +1392,9 @@ async function startEngine() {
       isRunning = true;
       setRunningState(true);
       log('Motor de audio ACTIVO', 'ok');
+      // Resetear bypass al iniciar
+      const bb = document.getElementById('bypassBtn');
+      if (bb) { bb.textContent = '⊘ BYPASS'; bb.className = 'btn btn-dim'; }
     } else {
       const err = d.error || 'Error desconocido';
       log(`[ERROR] ${err}`, 'err');
@@ -1228,10 +1412,25 @@ async function startEngine() {
 }
 
 async function stopEngine() {
-  await window.pywebview.api.stop_engine();
+  const d = await window.pywebview.api.stop_engine();
   isRunning = false;
   setRunningState(false);
   log('Motor detenido');
+  // Resumen de sesión
+  const st = d.session_stats;
+  if (st && st.blocks_processed > 0) {
+    const mins = Math.floor(st.duration_s / 60);
+    const secs = Math.round(st.duration_s % 60);
+    const dur  = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+    const counts = st.class_counts;
+    const NAMES = { mine_feet:'Mis Pasos', mine_guns:'Mis Disparos', enemy_feet:'Pasos Ene.', enemy_guns:'Disp. Ene.', airstrike:'Aéreo', unknown:'Sin clase' };
+    const classStr = Object.entries(counts).filter(([k,v]) => k!=='unknown' && v>0)
+      .sort((a,b)=>b[1]-a[1]).map(([k,v]) => `${NAMES[k]||k}:${v}`).join(' | ');
+    log(`── RESUMEN DE SESIÓN ──`, 'ok');
+    log(`Duración: ${dur}  ·  Bloques analizados: ${st.blocks_processed}`, 'ok');
+    if (classStr) log(`Detecciones → ${classStr}`, 'ok');
+    log(`Confianza media: ${st.mean_confidence}%  ·  Cobertura: ${st.coverage_pct}%`, 'ok');
+  }
 }
 
 function setRunningState(running) {
@@ -1249,6 +1448,19 @@ function updateGain(key, val, labelId) {
   gainTimeout[key] = setTimeout(async () => {
     try {
       await window.pywebview.api.set_gains({ [key]: parseFloat(val) });
+    } catch(e) {}
+  }, 300);
+}
+
+function updateGainDb(key, valDb, labelId) {
+  const db = parseFloat(valDb);
+  const linear = Math.pow(10, db / 20);
+  const sign = db >= 0 ? '+' : '';
+  document.getElementById(labelId).textContent = sign + db.toFixed(1) + ' dB';
+  clearTimeout(gainTimeout[key]);
+  gainTimeout[key] = setTimeout(async () => {
+    try {
+      await window.pywebview.api.set_gains({ [key]: linear });
     } catch(e) {}
   }, 300);
 }
@@ -1348,6 +1560,14 @@ async function trainModel() {
     if (d.success) {
       log(`Modelo entrenado ✓ — ${d.samples.mine} propios / ${d.samples.enemy} enemigos`, 'ok');
       updateSampleUI(d.samples);
+      // Precisión por clase
+      const rep = d.accuracy_report || {};
+      const CLASS_NAMES = { mine_feet:'Mis Pasos', mine_guns:'Mis Disparos', enemy_feet:'Pasos Ene.', enemy_guns:'Disp. Ene.', airstrike:'Aéreo' };
+      const lines = Object.entries(CLASS_NAMES).filter(([k]) => rep[k]).map(([k, label]) => {
+        const r = rep[k];
+        return `${label}: P=${(r.precision*100).toFixed(0)}% R=${(r.recall*100).toFixed(0)}%`;
+      });
+      if (lines.length) log('Precisión → ' + lines.join(' | '), 'ok');
     } else {
       log('Necesitas más muestras (mínimo 5 de cada clase)', 'err');
     }
@@ -1361,6 +1581,100 @@ async function clearSamples() {
   await window.pywebview.api.clear_samples();
   updateSampleUI({mine_feet:0, mine_guns:0, enemy_feet:0, enemy_guns:0, airstrike:0});
   log('Muestras borradas');
+}
+
+// ─── Comunidad ────────────────────────────────────────────────────────────
+function _setCommunityStatus(msg, ok) {
+  const el = document.getElementById('communityStatus');
+  if (el) { el.textContent = msg; el.style.color = ok ? 'var(--green)' : 'var(--red)'; }
+}
+
+async function downloadCommunityModel() {
+  const btn = document.getElementById('btnDlModel');
+  btn.disabled = true; btn.textContent = '⏳ Descargando…';
+  log('Descargando modelo comunitario…', 'warn');
+  try {
+    const d = await window.pywebview.api.fetch_community_model();
+    if (d.ok) {
+      _setCommunityStatus(`✓ Modelo comunitario instalado — ${d.community_samples} muestras de ${d.contributors} contribuidor(es)`, true);
+      log(`Modelo comunitario instalado (${d.community_samples} muestras, v${d.version})`, 'ok');
+      pollStatus();
+    } else {
+      _setCommunityStatus('✗ ' + (d.error || 'Error desconocido'), false);
+      log('No se pudo descargar modelo comunitario: ' + d.error, 'err');
+    }
+  } catch(e) {
+    _setCommunityStatus('✗ Error de conexión', false);
+    log('Error: ' + e, 'err');
+  }
+  btn.disabled = false; btn.textContent = '⬇ Descargar modelo comunitario';
+}
+
+async function downloadCommunitySamples() {
+  const btn = document.getElementById('btnDlSamples');
+  btn.disabled = true; btn.textContent = '⏳ Fusionando…';
+  log('Descargando muestras comunitarias…', 'warn');
+  try {
+    const d = await window.pywebview.api.download_community_samples();
+    if (d.ok) {
+      _setCommunityStatus(`✓ +${d.new_samples} muestras nuevas (total: ${d.total})`, true);
+      log(`Muestras fusionadas: +${d.new_samples} nuevas, total ${d.total}`, 'ok');
+      updateSampleUI(d.samples);
+    } else {
+      _setCommunityStatus('✗ ' + (d.error || 'Error'), false);
+      log('Error al fusionar: ' + d.error, 'err');
+    }
+  } catch(e) {
+    _setCommunityStatus('✗ Error de conexión', false);
+    log('Error: ' + e, 'err');
+  }
+  btn.disabled = false; btn.textContent = '⬇ Fusionar muestras comunitarias';
+}
+
+async function publishToCommunity() {
+  if (!confirm('¿Publicar tu modelo como modelo comunitario? Esto lo reemplazará para todos los usuarios.')) return;
+  const btn = document.getElementById('btnPublish');
+  btn.disabled = true; btn.textContent = '⏳ Publicando…';
+  log('Publicando modelo a la comunidad…', 'warn');
+  try {
+    const d = await window.pywebview.api.publish_to_community();
+    if (d.ok) {
+      _setCommunityStatus(`✓ Modelo publicado (${d.sample_count} muestras)`, true);
+      log(`Modelo comunitario actualizado con ${d.sample_count} muestras`, 'ok');
+    } else {
+      _setCommunityStatus('✗ ' + (d.error || 'Error al publicar'), false);
+      log('Error al publicar: ' + (d.error || JSON.stringify(d)), 'err');
+    }
+  } catch(e) {
+    _setCommunityStatus('✗ Error', false);
+    log('Error: ' + e, 'err');
+  }
+  btn.disabled = false; btn.textContent = '⬆ Publicar mi modelo';
+}
+
+async function submitSamples() {
+  const btn = document.getElementById('btnSubmit');
+  btn.disabled = true; btn.textContent = '⏳ Enviando…';
+  log('Enviando muestras a la comunidad…', 'warn');
+  try {
+    const d = await window.pywebview.api.submit_samples();
+    if (d.ok) {
+      if (d.method === 'api') {
+        _setCommunityStatus('✓ Muestras enviadas', true);
+        log('Muestras enviadas: ' + d.issue_url, 'ok');
+      } else {
+        _setCommunityStatus('✓ Abriendo GitHub en el navegador', true);
+        log('Se abrió GitHub en el navegador — adjunta data/samples.json', 'ok');
+      }
+    } else {
+      _setCommunityStatus('✗ ' + (d.error || 'Error'), false);
+      log('Error al enviar: ' + d.error, 'err');
+    }
+  } catch(e) {
+    _setCommunityStatus('✗ Error', false);
+    log('Error: ' + e, 'err');
+  }
+  btn.disabled = false; btn.textContent = '✉ Enviar mis muestras';
 }
 
 // ─── Poll de estado ───────────────────────────────────────────────────────
@@ -1521,6 +1835,211 @@ function openExternal(url) {
   return false;
 }
 
+// ─── Minimizar a bandeja ──────────────────────────────────────────────────
+async function minimizeToTray() {
+  try {
+    await window.pywebview.api.minimize_to_tray();
+  } catch(e) {}
+}
+
+// ─── Bypass EQ ───────────────────────────────────────────────────────────
+async function toggleBypass() {
+  try {
+    const d = await window.pywebview.api.toggle_bypass();
+    const btn = document.getElementById('bypassBtn');
+    if (d.bypass) {
+      btn.textContent = '⊘ BYPASS ON';
+      btn.className = 'btn btn-red';
+      log('BYPASS activado — audio pasa sin procesamiento', 'warn');
+    } else {
+      btn.textContent = '⊘ BYPASS';
+      btn.className = 'btn btn-dim';
+      log('BYPASS desactivado — EQ activo', 'ok');
+    }
+  } catch(e) {}
+}
+
+// ─── Umbral de confianza ──────────────────────────────────────────────────
+let _confThrottleTimer = null;
+function updateConfidenceThreshold(val) {
+  document.getElementById('valConf').textContent = val + '%';
+  clearTimeout(_confThrottleTimer);
+  _confThrottleTimer = setTimeout(async () => {
+    try {
+      await window.pywebview.api.set_confidence_threshold(parseFloat(val) / 100);
+    } catch(e) {}
+  }, 300);
+}
+
+// ─── Etiquetado retroactivo ───────────────────────────────────────────────
+const LABEL_NAMES = {
+  mine_feet: 'Mis Pasos', mine_guns: 'Mis Disparos',
+  enemy_feet: 'Pasos Enemigo', enemy_guns: 'Disparos Enemigo', airstrike: 'Ataque Aéreo'
+};
+async function labelRecent(label) {
+  if (!isRunning) { log('Activa el motor primero', 'warn'); return; }
+  const statusEl = document.getElementById('labelRecentStatus');
+  if (statusEl) statusEl.textContent = '⏳ Etiquetando...';
+  try {
+    const d = await window.pywebview.api.label_recent(label);
+    if (d.ok) {
+      const msg = `✓ +${d.added} muestras → ${LABEL_NAMES[label] || label}`;
+      if (statusEl) statusEl.textContent = msg;
+      log(msg, 'ok');
+      updateSampleUI(d.samples);
+    } else {
+      if (statusEl) statusEl.textContent = '— Sin audio en el buffer';
+    }
+  } catch(e) {
+    if (statusEl) statusEl.textContent = '✗ Error';
+  }
+  setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+}
+
+// ─── Perfiles de ganancia ─────────────────────────────────────────────────
+const GAINS_DB_MAP = {
+  enemy_footsteps: { sliderId: 'gainEnemyFeet', labelId: 'valEF' },
+  own_footsteps:   { sliderId: 'gainOwnFeet',   labelId: 'valOF' },
+  own_gunshots:    { sliderId: 'gainOwnGuns',   labelId: 'valOG' },
+  enemy_gunshots:  { sliderId: 'gainGuns',      labelId: 'valG'  },
+  airstrike_vol:   { sliderId: 'gainAirVol',    labelId: 'valAV' },
+  airstrikes:      { sliderId: 'gainAir',       labelId: 'valA'  },
+};
+
+async function saveProfile() {
+  const name = document.getElementById('profileName').value.trim();
+  if (!name) { log('Escribe un nombre para el perfil', 'warn'); return; }
+  try {
+    await window.pywebview.api.save_profile(name);
+    document.getElementById('profileName').value = '';
+    log(`Perfil guardado: "${name}"`, 'ok');
+    refreshProfiles();
+  } catch(e) { log('Error guardando perfil: ' + e, 'err'); }
+}
+
+async function loadProfile(name) {
+  try {
+    const d = await window.pywebview.api.load_profile(name);
+    if (!d.ok) { log(`Perfil "${name}" no encontrado`, 'warn'); return; }
+    // Actualizar sliders con los nuevos gains
+    for (const [key, { sliderId, labelId }] of Object.entries(GAINS_DB_MAP)) {
+      if (d.gains[key] !== undefined) {
+        const linear = d.gains[key];
+        const db = linear > 0 ? 20 * Math.log10(linear) : -99;
+        const slEl = document.getElementById(sliderId);
+        const lbEl = document.getElementById(labelId);
+        if (slEl) slEl.value = db.toFixed(1);
+        if (lbEl) lbEl.textContent = (db >= 0 ? '+' : '') + db.toFixed(1) + ' dB';
+      }
+    }
+    log(`Perfil cargado: "${name}"`, 'ok');
+  } catch(e) { log('Error cargando perfil: ' + e, 'err'); }
+}
+
+async function deleteProfile(name) {
+  try {
+    await window.pywebview.api.delete_profile(name);
+    log(`Perfil eliminado: "${name}"`, 'ok');
+    refreshProfiles();
+  } catch(e) {}
+}
+
+async function refreshProfiles() {
+  try {
+    const profiles = await window.pywebview.api.list_profiles();
+    const container = document.getElementById('profileList');
+    if (!container) return;
+    const names = Object.keys(profiles);
+    if (names.length === 0) {
+      container.innerHTML = '<span style="font-family:\'Share Tech Mono\',monospace;font-size:10px;color:var(--textdim)">Sin perfiles guardados</span>';
+      return;
+    }
+    container.innerHTML = names.map(n =>
+      `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:3px 8px">
+        <span style="font-family:\'Share Tech Mono\',monospace;font-size:10px;cursor:pointer;color:var(--text)" onclick="loadProfile('${n.replace(/'/g,"\\'")}')">▶ ${n}</span>
+        <span style="font-family:\'Share Tech Mono\',monospace;font-size:10px;cursor:pointer;color:var(--textdim)" onclick="deleteProfile('${n.replace(/'/g,"\\'")}')">✕</span>
+      </span>`
+    ).join('');
+  } catch(e) {}
+}
+
+// ─── Timeline 30s ─────────────────────────────────────────────────────────
+const TIMELINE_COLORS = {
+  mine_feet:  '#ffcc00', mine_guns:  '#ffaa00',
+  enemy_feet: '#ff3366', enemy_guns: '#ff0033',
+  airstrike:  '#ff8800', unknown:    '#1a2e22',
+};
+const TIMELINE_WINDOW = 30;   // segundos
+const _timeline = [];          // [{t, pred}]
+
+function _timelinePush(pred) {
+  const now = Date.now() / 1000;
+  _timeline.push({ t: now, pred });
+  // Descartar entradas más viejas del doble de la ventana
+  const cutoff = now - TIMELINE_WINDOW * 2;
+  while (_timeline.length > 0 && _timeline[0].t < cutoff) _timeline.shift();
+  _drawTimeline();
+}
+
+function _drawTimeline() {
+  const canvas = document.getElementById('timelineCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.offsetWidth;
+  canvas.width = w;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#060d09';
+  ctx.fillRect(0, 0, w, h);
+
+  const now = Date.now() / 1000;
+  const start = now - TIMELINE_WINDOW;
+
+  for (let i = 0; i < _timeline.length - 1; i++) {
+    const a = _timeline[i], b = _timeline[i + 1];
+    const x1 = Math.max(0, ((a.t - start) / TIMELINE_WINDOW) * w);
+    const x2 = Math.min(w, ((b.t - start) / TIMELINE_WINDOW) * w);
+    if (x2 < 0) continue;
+    ctx.fillStyle = TIMELINE_COLORS[a.pred] || '#1a2e22';
+    ctx.fillRect(x1, 0, Math.max(x2 - x1, 1), h);
+  }
+  // Dibujar la última entrada hasta el borde derecho
+  if (_timeline.length > 0) {
+    const last = _timeline[_timeline.length - 1];
+    const x1 = Math.max(0, ((last.t - start) / TIMELINE_WINDOW) * w);
+    ctx.fillStyle = TIMELINE_COLORS[last.pred] || '#1a2e22';
+    ctx.fillRect(x1, 0, w - x1, h);
+  }
+
+  // Leyenda (solo clases presentes en la ventana)
+  const present = new Set(_timeline.filter(e => e.t >= start).map(e => e.pred));
+  const leg = document.getElementById('timelineLegend');
+  if (leg) {
+    leg.innerHTML = [...present].filter(p => p !== 'unknown').map(p =>
+      `<span style="display:inline-flex;align-items:center;gap:3px">
+        <span style="width:8px;height:8px;border-radius:2px;background:${TIMELINE_COLORS[p]||'#333'};display:inline-block"></span>
+        <span style="color:var(--textdim)">${(PRED_LABELS[p]||p).replace('MIS ','').replace(' ENEMIGO',' ENE.')}</span>
+      </span>`
+    ).join('');
+  }
+}
+
+// ─── Autostart ────────────────────────────────────────────────────────────
+async function doAutostart() {
+  log('Reanudando última sesión…', 'warn');
+  try {
+    const d = await window.pywebview.api.autostart();
+    if (d.ok) {
+      isRunning = true;
+      setRunningState(true);
+      log('⚡ Sesión reanudada automáticamente', 'ok');
+      document.getElementById('autostartRow').style.display = 'none';
+    } else {
+      log('No se pudo reanudar: ' + (d.error || 'Error'), 'err');
+    }
+  } catch(e) { log('Error en autostart: ' + e, 'err'); }
+}
+
 window.addEventListener('pywebviewready', async () => {
   log('Aplicación lista', 'ok');
   loadDevices();
@@ -1536,6 +2055,15 @@ window.addEventListener('pywebviewready', async () => {
     if (el1) el1.textContent = tag;
     if (el2) el2.textContent = tag;
   } catch(e) {}
+  // Autostart: mostrar botón si hay sesión anterior
+  try {
+    const last = await window.pywebview.api.get_last_devices();
+    if (last && (last.input !== null || last.output !== null)) {
+      document.getElementById('autostartRow').style.display = 'block';
+    }
+  } catch(e) {}
+  // Cargar perfiles
+  refreshProfiles();
 });
 </script>
 </body>
@@ -1723,6 +2251,23 @@ function updateGain(key, val, labelId) {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ [key]: parseFloat(val) })
+      });
+    } catch(e) {}
+  }, 300);
+}
+
+function updateGainDb(key, valDb, labelId) {
+  const db = parseFloat(valDb);
+  const linear = Math.pow(10, db / 20);
+  const sign = db >= 0 ? '+' : '';
+  document.getElementById(labelId).textContent = sign + db.toFixed(1) + ' dB';
+  clearTimeout(gainTimeout[key]);
+  gainTimeout[key] = setTimeout(async () => {
+    try {
+      await fetch(`${API}/api/gains`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ [key]: linear })
       });
     } catch(e) {}
   }, 300);

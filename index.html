@@ -755,7 +755,7 @@
           </div>
           <div id="labelRecentStatus" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--green3);margin-top:4px;min-height:14px"></div>
           <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--textdim);margin-top:6px;letter-spacing:1px">
-            Hotkeys globales (con el juego en pantalla): <span style="color:var(--green3)">F1</span> Mis Pasos · <span style="color:var(--green3)">F2</span> Mis Disparos · <span style="color:var(--green3)">F3</span> Pasos Ene. · <span style="color:var(--green3)">F4</span> Disp. Ene. · <span style="color:var(--green3)">F5</span> Aéreo · <span style="color:var(--red)">F6</span> Detener grabación
+            Hotkeys (funcionen con el juego en pantalla): <span style="color:var(--green3)">F1</span> Mis Pasos · <span style="color:var(--green3)">F2</span> Mis Disparos · <span style="color:var(--green3)">F3</span> Pasos Ene. · <span style="color:var(--green3)">F4</span> Disp. Ene. · <span style="color:var(--green3)">F5</span> Aéreo · <span style="color:var(--red)">F6</span> Detener — pulsa 2× el mismo para detener
           </div>
         </div>
 
@@ -1236,22 +1236,24 @@ function onStatus(msg) {
   log(msg);
 }
 
-// Llamado por Python cuando se presiona hotkey F1-F5
-function onHotkeyLabel(msg) {
-  log(msg, 'ok');
-  // Parpadear el panel de etiquetado retroactivo como feedback visual
-  const el = document.getElementById('labelRecentStatus');
-  if (el) {
-    el.textContent = msg;
-    clearTimeout(el._ht);
-    el._ht = setTimeout(() => { el.textContent = ''; }, 2500);
-  }
+// Llamado por Python: F1-F5 inician grabación para esa clase
+function onHotkeyStartTraining(label) {
+  startTraining(label);  // actualiza tarjetas, dot y status
+  const names = { mine_feet:'Mis Pasos', mine_guns:'Mis Disparos', enemy_feet:'Pasos Ene.', enemy_guns:'Disp. Ene.', airstrike:'Aéreo' };
+  log(`[HOTKEY] ● Grabando → ${names[label] || label}  (F6 para detener)`, 'warn');
 }
 
-// Llamado por Python cuando se presiona F6 (stop training)
+// Llamado por Python: F1 segunda vez o F6 detienen grabación
 function onHotkeyStopTraining() {
   stopTraining();
   log('[HOTKEY F6] Grabación detenida', 'ok');
+}
+
+// (legacy — ya no se usa para grabación, pero se mantiene por si acaso)
+function onHotkeyLabel(msg) {
+  log(msg, 'ok');
+  const el = document.getElementById('labelRecentStatus');
+  if (el) { el.textContent = msg; clearTimeout(el._ht); el._ht = setTimeout(() => { el.textContent = ''; }, 2500); }
 }
 
 // ─── Waveform canvas ──────────────────────────────────────────────────────

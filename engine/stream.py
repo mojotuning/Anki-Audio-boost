@@ -49,39 +49,42 @@ class StreamMixin:
             except queue.Empty:
                 continue
 
-            features = self.extract_features(audio)
-            if features is None:
+            try:
+                features = self.extract_features(audio)
+                if features is None:
+                    continue
+
+                if self.training_mode and self.training_label:
+                    self.add_training_sample(features, self.training_label)
+
+                pred, conf = self.predict(features)
+
+                # ── Ventana de votación: suavizar con los últimos 5 bloques ──────
+                self._pred_window.append((pred, conf))
+                votes = Counter(p for p, _ in self._pred_window)
+                voted_pred = votes.most_common(1)[0][0]
+                voted_conf = sum(c for p, c in self._pred_window if p == voted_pred) / votes[voted_pred]
+
+                prev_pred              = self.last_prediction
+                self.last_prediction   = voted_pred
+                self.prediction_confidence = voted_conf
+
+                # ── Umbral de confianza: EQ solo si el modelo está seguro ─────────
+                if voted_pred == "unknown" or voted_conf < self.confidence_threshold:
+                    self.effective_prediction = "unknown"
+                else:
+                    self.effective_prediction = voted_pred
+
+                # ── Estadísticas de sesión ─────────────────────────────────────────
+                stats = self._session_stats
+                stats['blocks_processed'] += 1
+                eff = self.effective_prediction
+                stats['class_counts'][eff] = stats['class_counts'].get(eff, 0) + 1
+                if voted_conf > 0 and len(stats['confidences']) < 50000:
+                    stats['confidences'].append(voted_conf)
+
+            except Exception:
                 continue
-
-            if self.training_mode and self.training_label:
-                self.add_training_sample(features, self.training_label)
-
-            pred, conf = self.predict(features)
-
-            # ── Ventana de votación: suavizar con los últimos 5 bloques ──────
-            self._pred_window.append((pred, conf))
-            # Votar: clase con más votos; en empate, la de mayor confianza media
-            votes = Counter(p for p, _ in self._pred_window)
-            voted_pred = votes.most_common(1)[0][0]
-            voted_conf = sum(c for p, c in self._pred_window if p == voted_pred) / votes[voted_pred]
-
-            prev_pred              = self.last_prediction
-            self.last_prediction   = voted_pred
-            self.prediction_confidence = voted_conf
-
-            # ── Umbral de confianza: EQ solo si el modelo está seguro ─────────
-            if voted_pred == "unknown" or voted_conf < self.confidence_threshold:
-                self.effective_prediction = "unknown"
-            else:
-                self.effective_prediction = voted_pred
-
-            # ── Estadísticas de sesión ─────────────────────────────────────────
-            self._session_stats['blocks_processed'] += 1
-            eff = self.effective_prediction
-            self._session_stats['class_counts'][eff] = \
-                self._session_stats['class_counts'].get(eff, 0) + 1
-            if voted_conf > 0:
-                self._session_stats['confidences'].append(voted_conf)
 
             if self.on_prediction_update:
                 now = _time.monotonic()

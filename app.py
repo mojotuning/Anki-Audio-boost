@@ -39,18 +39,29 @@ _HOTKEY_STOP_TRAINING = 'f6'
 _hotkeys_registered = False
 
 
-def _do_hotkey_label(label):
+_HOTKEY_NAMES = {
+    'mine_feet': 'Mis Pasos', 'mine_guns': 'Mis Disparos',
+    'enemy_feet': 'Pasos Ene.', 'enemy_guns': 'Disp. Ene.', 'airstrike': 'Aéreo',
+}
+
+
+def _do_hotkey_training(label):
+    """F1-F5: toggle grabación para esta clase."""
     if not engine.running:
         return
-    added = engine.label_recent(label)
-    names = {'mine_feet': 'Mis Pasos', 'mine_guns': 'Mis Disparos',
-             'enemy_feet': 'Pasos Ene.', 'enemy_guns': 'Disp. Ene.', 'airstrike': 'Aéreo'}
-    msg = f"[HOTKEY] +{added} muestras → {names.get(label, label)}"
-    safe = msg.replace('\\', '\\\\').replace('"', '\\"')
-    _push_js(f'onHotkeyLabel("{safe}")')
+    name = _HOTKEY_NAMES.get(label, label)
+    if engine.training_mode and engine.training_label == label:
+        # Segunda pulsación del mismo hotkey → detener grabación
+        engine.set_training_mode(False)
+        _push_js('onHotkeyStopTraining()')
+    else:
+        # Iniciar grabación para esta clase (o cambiar de clase)
+        engine.set_training_mode(True, label)
+        _push_js(f"onHotkeyStartTraining('{label}')")
 
 
 def _do_hotkey_stop_training():
+    """F6: detener grabación incondicionalmente."""
     if not engine.running:
         return
     if engine.training_mode:
@@ -63,7 +74,7 @@ def _register_hotkeys():
     if not _KEYBOARD_AVAILABLE or _hotkeys_registered:
         return
     for key, label in _HOTKEY_LABELS.items():
-        _keyboard.add_hotkey(key, _do_hotkey_label, args=(label,), suppress=False)
+        _keyboard.add_hotkey(key, _do_hotkey_training, args=(label,), suppress=False)
     _keyboard.add_hotkey(_HOTKEY_STOP_TRAINING, _do_hotkey_stop_training, suppress=False)
     _hotkeys_registered = True
 

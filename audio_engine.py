@@ -84,6 +84,16 @@ class AudioEngine:
         self.on_prediction_update = None
         self.on_status_update = None
         
+        # Configuración de reducción de ruido
+        self.noise_config = {
+            'gate_enabled':    False,
+            'gate_threshold':  0.02,   # amplitud ≈ -34 dB
+            'nr_enabled':      False,
+            'nr_strength':     0.7,    # 0.0 – 1.0
+            'hp_enabled':      False,
+        }
+        self._noise_floor_buf = deque(maxlen=50)   # ~1 s a 48000/1024
+
         # Dispositivos
         self.input_device = None   # Loopback (audio del sistema)
         self.output_device = None  # Auriculares
@@ -152,10 +162,64 @@ class AudioEngine:
         # Audio original sin esa banda + banda con ganancia aplicada
         return audio - band + (band * gain_linear)
     
+    def set_noise_config(self, config: dict):
+        """Actualiza parámetros de reducción de ruido desde la UI."""
+        self.noise_config.update(config)
+
+    def _apply_highpass(self, audio: np.ndarray) -> np.ndarray:
+        """Butterworth HPF a 100 Hz — elimina rumble de baja frecuencia."""
+        b, a = signal.butter(4, 100.0 / (SAMPLE_RATE / 2.0), btype='highpass')
+        if audio.ndim > 1:
+            return np.column_stack(
+                [signal.lfilter(b, a, audio[:, ch]) for ch in range(audio.shape[1])]
+            ).astype(audio.dtype)
+        return signal.lfilter(b, a, audio).astype(audio.dtype)
+
+    def _apply_noise_gate(self, audio: np.ndarray) -> np.ndarray:
+        """Silencia bloques cuyo RMS está por debajo del umbral."""
+        rms = float(np.sqrt(np.mean(audio ** 2)))
+        if rms < self.noise_config['gate_threshold']:
+            return np.zeros_like(audio)
+        return audio
+
+    def _apply_noise_reduction(self, audio: np.ndarray) -> np.ndarray:
+        """Sustracción espectral: estima el piso de ruido y lo resta."""
+        strength = float(self.noise_config['nr_strength'])
+        result = audio.copy()
+        channels = audio.shape[1] if audio.ndim > 1 else 1
+        for ch in range(channels):
+            x = audio[:, ch] if audio.ndim > 1 else audio
+            spec  = np.fft.rfft(x)
+            mag   = np.abs(spec)
+            phase = np.angle(spec)
+            # Actualizar estimación del piso de ruido (estadística mínima)
+            self._noise_floor_buf.append(mag)
+            if len(self._noise_floor_buf) >= 5:
+                noise_est = np.min(self._noise_floor_buf, axis=0)
+            else:
+                noise_est = mag * 0.1
+            # Sustraer piso de ruido y reconstruir
+            mag_clean  = np.maximum(mag - strength * noise_est, 0.0)
+            spec_clean = mag_clean * np.exp(1j * phase)
+            x_clean    = np.fft.irfft(spec_clean, n=len(x))
+            if audio.ndim > 1:
+                result[:, ch] = x_clean
+            else:
+                result = x_clean.astype(audio.dtype)
+        return result.astype(np.float32)
+
     def process_audio(self, audio_chunk, prediction):
         """Aplica el procesamiento según la predicción del ML."""
         processed = audio_chunk.copy().astype(np.float64)
-        
+
+        # ─── Reducción de ruido (antes del EQ) ──────────────────────────────
+        if self.noise_config['hp_enabled']:
+            processed = self._apply_highpass(processed)
+        if self.noise_config['gate_enabled']:
+            processed = self._apply_noise_gate(processed)
+        if self.noise_config['nr_enabled']:
+            processed = self._apply_noise_reduction(processed)
+
         if prediction == "enemy":
             # Boost pasos enemigos
             db_enemy_feet = 20 * np.log10(self.gains["enemy_footsteps"])

@@ -94,6 +94,10 @@ class Api:
                 engine.gains[key] = float(val)
         return {'gains': engine.gains}
 
+    def set_noise_config(self, config):
+        engine.set_noise_config(config)
+        return {'ok': True}
+
     def start_training(self, label):
         engine.set_training_mode(True, label)
         return {'training': True, 'label': label}
@@ -234,7 +238,7 @@ class Api:
             _push_js(f'onUpdateProgress({{"status":"error","msg":"{err}"}})')
 
 
-VERSION = '1.3.8'
+VERSION = '1.3.9'
 
 # ─── Entrypoint ──────────────────────────────────────────────────────────────
 def _html_path():

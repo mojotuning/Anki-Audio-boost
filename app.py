@@ -312,6 +312,8 @@ class Api:
         success, err = engine.start(input_device=inp, output_device=out)
         return {'ok': success, 'running': engine.running, 'error': err,
                 'input': inp, 'output': out}
+
+    def get_version(self):
         return {'version': VERSION}
 
     def check_for_updates(self):
@@ -698,7 +700,7 @@ class Api:
         }
 
 
-VERSION = '1.4.5'
+VERSION = '1.5.1'
 
 # ─── Bandeja del sistema (system tray) ────────────────────────────────────────
 try:

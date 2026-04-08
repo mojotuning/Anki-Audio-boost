@@ -599,6 +599,9 @@
       <button class="nav-item active" id="nav-home" onclick="navigate('home')">
         <span class="nav-icon">◈</span> HOME
       </button>
+      <button class="nav-item" id="nav-audio" onclick="navigate('audio')">
+        <span class="nav-icon">◈</span> AUDIO
+      </button>
       <button class="nav-item" id="nav-settings" onclick="navigate('settings')">
         <span class="nav-icon">⚙</span> SETTINGS
       </button>
@@ -740,124 +743,6 @@
         </div>
       </div>
 
-      <!-- Reducción de Ruido -->
-      <div class="panel" style="margin-bottom:16px">
-        <div class="panel-title">◈ Reducción de Ruido / Estática</div>
-
-        <div class="noise-row">
-          <div class="noise-label">
-            Filtro Paso Alto
-            <small>Elimina rumble &lt; 100 Hz (zumbidos, vibraciones)</small>
-          </div>
-          <label class="toggle">
-            <input type="checkbox" id="hpEnabled" onchange="updateNoise()">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-
-        <div class="noise-row">
-          <div class="noise-label">
-            Noise Gate
-            <small>Silencia el audio cuando no hay señal (mata estática baja)</small>
-          </div>
-          <label class="toggle">
-            <input type="checkbox" id="gateEnabled" onchange="updateNoise()">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-
-        <div class="slider-row" id="gateRow" style="opacity:0.4;transition:opacity .2s">
-          <div class="slider-label">
-            Umbral del Gate
-            <small>Más alto = más agresivo</small>
-          </div>
-          <input type="range" id="gateThreshold" min="0.001" max="0.1" step="0.001" value="0.02"
-                 oninput="updateNoise(); document.getElementById('valGT').textContent = Math.round(20*Math.log10(+this.value))+'dB'">
-          <span class="slider-val" id="valGT">-34dB</span>
-        </div>
-
-        <div class="noise-row" style="margin-top:6px">
-          <div class="noise-label">
-            Reducción Espectral
-            <small>Aprende el piso de ruido y lo resta (estática constante)</small>
-          </div>
-          <label class="toggle">
-            <input type="checkbox" id="nrEnabled" onchange="updateNoise()">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-
-        <div class="slider-row" id="nrRow" style="opacity:0.4;transition:opacity .2s">
-          <div class="slider-label">
-            Intensidad NR
-            <small>Mayor = más reducción (cuidado con artefactos)</small>
-          </div>
-          <input type="range" id="nrStrength" min="0.1" max="1.0" step="0.05" value="0.7"
-                 oninput="updateNoise(); document.getElementById('valNR').textContent = Math.round(+this.value*100)+'%'">
-          <span class="slider-val" id="valNR">70%</span>
-        </div>
-
-      </div>
-
-      <!-- Reducción de Ruido -->
-      <div class="panel" style="margin-bottom:16px">
-        <div class="panel-title">◈ Reducción de Ruido / Estática</div>
-
-        <div class="noise-row">
-          <div class="noise-label">
-            Filtro Paso Alto
-            <small>Elimina rumble &lt; 100 Hz (zumbidos, vibraciones)</small>
-          </div>
-          <label class="toggle">
-            <input type="checkbox" id="hpEnabled" onchange="updateNoise()">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-
-        <div class="noise-row">
-          <div class="noise-label">
-            Noise Gate
-            <small>Silencia cuando no hay señal (mata estática en silencios)</small>
-          </div>
-          <label class="toggle">
-            <input type="checkbox" id="gateEnabled" onchange="updateNoise()">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-
-        <div class="slider-row" id="gateRow" style="opacity:0.4;transition:opacity .2s">
-          <div class="slider-label">
-            Umbral del Gate
-            <small>Más alto = más agresivo</small>
-          </div>
-          <input type="range" id="gateThreshold" min="0.001" max="0.1" step="0.001" value="0.02"
-                 oninput="updateNoise(); document.getElementById('valGT').textContent = Math.round(20*Math.log10(+this.value))+'dB'">
-          <span class="slider-val" id="valGT">-34dB</span>
-        </div>
-
-        <div class="noise-row" style="margin-top:6px">
-          <div class="noise-label">
-            Reducción Espectral
-            <small>Aprende el piso de ruido y lo resta (estática constante, hiss)</small>
-          </div>
-          <label class="toggle">
-            <input type="checkbox" id="nrEnabled" onchange="updateNoise()">
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-
-        <div class="slider-row" id="nrRow" style="opacity:0.4;transition:opacity .2s">
-          <div class="slider-label">
-            Intensidad NR
-            <small>Mayor = más reducción (si notas artefactos, bájalo)</small>
-          </div>
-          <input type="range" id="nrStrength" min="0.1" max="1.0" step="0.05" value="0.7"
-                 oninput="updateNoise(); document.getElementById('valNR').textContent = Math.round(+this.value*100)+'%'">
-          <span class="slider-val" id="valNR">70%</span>
-        </div>
-
-      </div>
-
       <!-- Entrenamiento ML -->
       <div class="panel" style="margin-bottom:16px">
         <div class="panel-title">◎ Entrenamiento ML</div>
@@ -911,6 +796,81 @@
 
   </div><!-- /grid -->
   </div><!-- /page-home -->
+
+    <!-- PAGE: AUDIO -->
+    <div id="page-audio" class="page">
+      <div class="grid" style="grid-template-columns:1fr">
+        <div>
+
+          <div class="panel" style="margin-bottom:16px">
+            <div class="panel-title">◈ Reducción de Ruido / Estática</div>
+
+            <div class="noise-row">
+              <div class="noise-label">
+                Filtro Paso Alto
+                <small>Elimina rumble &lt; 100 Hz — zumbidos eléctricos, vibraciones, corriente AC</small>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="hpEnabled" onchange="updateNoise()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div class="noise-row">
+              <div class="noise-label">
+                Noise Gate
+                <small>Silencia bloques de audio por debajo del umbral — mata estática en silencios</small>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="gateEnabled" onchange="updateNoise()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div class="slider-row" id="gateRow" style="opacity:0.4;transition:opacity .2s">
+              <div class="slider-label">
+                Umbral del Gate
+                <small>Más alto = más agresivo (empieza en -34 dB)</small>
+              </div>
+              <input type="range" id="gateThreshold" min="0.001" max="0.1" step="0.001" value="0.02"
+                     oninput="updateNoise(); document.getElementById('valGT').textContent = Math.round(20*Math.log10(+this.value))+'dB'">
+              <span class="slider-val" id="valGT">-34dB</span>
+            </div>
+
+            <div class="noise-row" style="margin-top:6px">
+              <div class="noise-label">
+                Reducción Espectral
+                <small>Aprende el piso de ruido constante y lo resta — hiss, fan noise, estática de fondo</small>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="nrEnabled" onchange="updateNoise()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div class="slider-row" id="nrRow" style="opacity:0.4;transition:opacity .2s">
+              <div class="slider-label">
+                Intensidad NR
+                <small>Si notas artefactos metálicos, bájalo</small>
+              </div>
+              <input type="range" id="nrStrength" min="0.1" max="1.0" step="0.05" value="0.7"
+                     oninput="updateNoise(); document.getElementById('valNR').textContent = Math.round(+this.value*100)+'%'">
+              <span class="slider-val" id="valNR">70%</span>
+            </div>
+
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">◎ Control de Ganancia</div>
+            <p style="font-size:12px;color:var(--textdim);line-height:1.5">
+              Los controles de ganancia están en <strong style="color:var(--green)">HOME → columna derecha</strong>.<br>
+              La reducción de ruido se aplica <strong style="color:var(--text)">antes</strong> del EQ y el boost de pasos.
+            </p>
+          </div>
+
+        </div>
+      </div>
+    </div><!-- /page-audio -->
 
     <!-- PAGE: SETTINGS -->
     <div id="page-settings" class="page">
@@ -1335,6 +1295,7 @@ drawWaveform();
 // ─── Navegación entre páginas ─────────────────────────────────────────────────
 const PAGE_TITLES = {
   home:     '◈ HOME // AUDIO ENGINE',
+  audio:    '◈ AUDIO // REDUCCIÓN DE RUIDO',
   settings: '⚙ SETTINGS // CONFIGURACIÓN',
   account:  '◎ ACCOUNT // PERFIL',
 };

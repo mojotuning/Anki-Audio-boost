@@ -249,7 +249,12 @@ class AudioEngine:
         return result.astype(np.float32)
 
     def process_audio(self, audio_chunk, prediction):
-        """Aplica el procesamiento según la predicción del ML."""
+        """Aplica el procesamiento según la predicción del ML.
+        
+        Lógica: el boost de pasos/disparos se aplica SIEMPRE (enemy o unknown).
+        El ML solo interviene para ATENUAR cuando reconoce los pasos propios.
+        Sin modelo entrenado el programa ya funciona como booster de audio.
+        """
         processed = audio_chunk.copy().astype(np.float64)
 
         # ─── Reducción de ruido (antes del EQ) ──────────────────────────────
@@ -260,29 +265,27 @@ class AudioEngine:
         if self.noise_config['nr_enabled']:
             processed = self._apply_noise_reduction(processed)
 
-        if prediction == "enemy":
-            # Boost pasos enemigos
-            db_enemy_feet = 20 * np.log10(self.gains["enemy_footsteps"])
-            processed = self.apply_eq_band(processed, 80, 600, db_enemy_feet)
-            
-            # Boost disparos
-            db_guns = 20 * np.log10(self.gains["enemy_gunshots"])
-            processed = self.apply_eq_band(processed, 600, 4000, db_guns)
-            
-        elif prediction == "mine":
-            # Atenuar pasos propios
-            db_own = 20 * np.log10(self.gains["own_footsteps"])
+        if prediction == "mine":
+            # ML detectó pasos propios → atenuar esa banda
+            db_own = 20 * np.log10(max(self.gains["own_footsteps"], 1e-6))
             processed = self.apply_eq_band(processed, 80, 600, db_own)
-        
+        else:
+            # enemy O unknown → siempre boost (modo por defecto sin modelo)
+            db_enemy_feet = 20 * np.log10(max(self.gains["enemy_footsteps"], 1e-6))
+            processed = self.apply_eq_band(processed, 80, 600, db_enemy_feet)
+
+            db_guns = 20 * np.log10(max(self.gains["enemy_gunshots"], 1e-6))
+            processed = self.apply_eq_band(processed, 600, 4000, db_guns)
+
         # Boost ataques aéreos siempre
-        db_air = 20 * np.log10(self.gains["airstrikes"])
+        db_air = 20 * np.log10(max(self.gains["airstrikes"], 1e-6))
         processed = self.apply_eq_band(processed, 40, 200, db_air)
-        
+
         # Prevenir clipping
         max_val = np.max(np.abs(processed))
         if max_val > 0.95:
             processed = processed * (0.95 / max_val)
-        
+
         return processed.astype(np.float32)
     
     # ─── Machine Learning ────────────────────────────────────────────────────

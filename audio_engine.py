@@ -82,6 +82,11 @@ class AudioEngine:
         # Buffering (equivalente al WDM buffer de Voicemeeter)
         self.block_size = BLOCK_SIZE   # configurable desde la UI sin reiniciar
 
+        # Estado persistente de filtros IIR — evita clicks/estática entre bloques
+        # Clave: (banda, canal) → zi
+        self._filter_zi: dict = {}
+        self._hp_zi: dict = {}   # highpass
+
         # Callbacks para la UI
         self.on_level_update = None
         self.on_prediction_update = None
@@ -149,21 +154,37 @@ class AudioEngine:
             return None
     
     # ─── Filtros de audio ────────────────────────────────────────────────────
-    def apply_eq_band(self, audio, low_hz, high_hz, gain_db):
-        """Aplica ganancia a una banda de frecuencia."""
-        nyq = SAMPLE_RATE / 2
-        low = max(low_hz / nyq, 0.001)
+    def apply_eq_band(self, audio: np.ndarray, low_hz: float, high_hz: float, gain_db: float) -> np.ndarray:
+        """Aplica ganancia a una banda usando sosfilt con estado persistente.
+        Continuar el estado entre bloques elimina los clicks/estática de arranque.
+        """
+        if gain_db == 0.0:
+            return audio
+        nyq = SAMPLE_RATE / 2.0
+        low  = max(low_hz  / nyq, 0.001)
         high = min(high_hz / nyq, 0.999)
-        
         if low >= high:
             return audio
-        
-        b, a = signal.butter(4, [low, high], btype='band')
-        band = signal.lfilter(b, a, audio, axis=0)
-        gain_linear = 10 ** (gain_db / 20)
-        
-        # Audio original sin esa banda + banda con ganancia aplicada
-        return audio - band + (band * gain_linear)
+
+        band_key = (low_hz, high_hz)
+        sos = signal.butter(4, [low, high], btype='band', output='sos')
+        n_ch = audio.shape[1] if audio.ndim > 1 else 1
+        gain_linear = 10.0 ** (gain_db / 20.0)
+        result = audio.copy()
+
+        for ch in range(n_ch):
+            x = audio[:, ch] if audio.ndim > 1 else audio.ravel()
+            key = (band_key, ch)
+            if key not in self._filter_zi:
+                self._filter_zi[key] = signal.sosfilt_zi(sos) * x[0]
+            band_signal, self._filter_zi[key] = signal.sosfilt(sos, x, zi=self._filter_zi[key])
+            processed_ch = x - band_signal + band_signal * gain_linear
+            if audio.ndim > 1:
+                result[:, ch] = processed_ch
+            else:
+                result = processed_ch
+
+        return result.astype(audio.dtype)
     
     def set_buffer_size(self, size: int):
         """Cambia el tamaño del buffer de audio (equivalente a WDM Buffering en Voicemeeter).
@@ -179,13 +200,20 @@ class AudioEngine:
         self.noise_config.update(config)
 
     def _apply_highpass(self, audio: np.ndarray) -> np.ndarray:
-        """Butterworth HPF a 100 Hz — elimina rumble de baja frecuencia."""
-        b, a = signal.butter(4, 100.0 / (SAMPLE_RATE / 2.0), btype='highpass')
-        if audio.ndim > 1:
-            return np.column_stack(
-                [signal.lfilter(b, a, audio[:, ch]) for ch in range(audio.shape[1])]
-            ).astype(audio.dtype)
-        return signal.lfilter(b, a, audio).astype(audio.dtype)
+        """Butterworth HPF a 100 Hz con estado persistente (sin clicks)."""
+        sos = signal.butter(4, 100.0 / (SAMPLE_RATE / 2.0), btype='highpass', output='sos')
+        n_ch = audio.shape[1] if audio.ndim > 1 else 1
+        result = audio.copy()
+        for ch in range(n_ch):
+            x = audio[:, ch] if audio.ndim > 1 else audio.ravel()
+            if ch not in self._hp_zi:
+                self._hp_zi[ch] = signal.sosfilt_zi(sos) * x[0]
+            y, self._hp_zi[ch] = signal.sosfilt(sos, x, zi=self._hp_zi[ch])
+            if audio.ndim > 1:
+                result[:, ch] = y
+            else:
+                result = y
+        return result.astype(audio.dtype)
 
     def _apply_noise_gate(self, audio: np.ndarray) -> np.ndarray:
         """Silencia bloques cuyo RMS está por debajo del umbral."""
@@ -537,6 +565,10 @@ class AudioEngine:
                 except Exception:
                     pass
                 setattr(self, attr, None)
+        # Resetear estados de filtros para el próximo Start
+        self._filter_zi.clear()
+        self._hp_zi.clear()
+        self._noise_floor_buf.clear()
     
     def set_training_mode(self, active, label=None):
         self.training_mode = active

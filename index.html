@@ -680,7 +680,7 @@
     <div class="sidebar-logo">
       <div class="logo">
         <span class="big">⬡ WARZONE</span>
-        AUDIO ENHANCER v1.2
+        AUDIO ENHANCER <span id="sidebarVersion">...</span>
       </div>
     </div>
     <div class="nav-items">
@@ -2303,8 +2303,10 @@ window.addEventListener('pywebviewready', async () => {
     const tag = 'v' + v.version;
     const el1 = document.getElementById('topbarVersion');
     const el2 = document.getElementById('currentVersion');
+    const el3 = document.getElementById('sidebarVersion');
     if (el1) el1.textContent = tag;
     if (el2) el2.textContent = tag;
+    if (el3) el3.textContent = tag;
   } catch(e) {}
   // Autostart: mostrar botón si hay sesión anterior
   try {

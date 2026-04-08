@@ -93,8 +93,9 @@ class ReviewMixin:
             return {'ok': False, 'error': 'sounddevice not available'}
         try:
             _sd.stop()
-            out_dev = getattr(self, 'output_device', None)
-            _sd.play(entry['audio'].astype(np.float32), SAMPLE_RATE, device=out_dev)
+            # Usar la salida por defecto del sistema en lugar del output_device del stream,
+            # ya que ese dispositivo puede estar bloqueado por el stream principal de PortAudio.
+            _sd.play(entry['audio'].astype(np.float32), SAMPLE_RATE, device=None)
             return {'ok': True}
         except Exception as e:
             return {'ok': False, 'error': str(e)}

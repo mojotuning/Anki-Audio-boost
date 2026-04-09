@@ -19,6 +19,7 @@ if getattr(sys, 'frozen', False):
         os.environ['REQUESTS_CA_BUNDLE'] = _certifi_path
 
 from audio_engine import AudioEngine, list_audio_devices, detect_audio_software
+
 import webview
 
 # ─── Hotkeys globales F1-F5 ──────────────────────────────────────────────────
@@ -317,17 +318,12 @@ class Api:
         return {'version': VERSION}
 
     def check_for_updates(self):
-        import urllib.request, json as _json, ssl
+        import json as _json
+        ctx = _ssl.create_default_context()
         try:
-            # Build SSL context using certifi's CA bundle (works inside PyInstaller exe)
-            try:
-                import certifi
-                ctx = ssl.create_default_context(cafile=certifi.where())
-            except Exception:
-                ctx = ssl.create_default_context()
             url = 'https://api.github.com/repos/mojotuning/Anki-Audio-boost/releases/latest'
-            req = urllib.request.Request(url, headers={'User-Agent': 'WarzoneAudioEnhancer'})
-            with urllib.request.urlopen(req, timeout=8, context=ctx) as resp:
+            req = _urllib_request.Request(url, headers={'User-Agent': 'WarzoneAudioEnhancer'})
+            with _urllib_request.urlopen(req, timeout=8, context=ctx) as resp:
                 data = _json.loads(resp.read().decode())
             latest = data.get('tag_name', '').lstrip('v')
             release_url = data.get('html_url', 'https://github.com/mojotuning/Anki-Audio-boost/releases')
@@ -367,25 +363,21 @@ class Api:
         return {'started': True}
 
     def _download_and_install(self, download_url):
-        import urllib.request, ssl, tempfile, subprocess, time
-        try:
-            import certifi
-            ctx = ssl.create_default_context(cafile=certifi.where())
-        except Exception:
-            ctx = ssl.create_default_context()
+        import time
+        ctx = _ssl.create_default_context()
 
         if not getattr(sys, 'frozen', False):
             _push_js('onUpdateProgress({"status":"error","msg":"Auto-update solo funciona desde el .exe instalado, no en modo dev"})')
             return
 
         current_exe = sys.executable
-        tmp_dir = tempfile.mkdtemp(prefix='wze_update_')
+        tmp_dir = _tempfile.mkdtemp(prefix='wze_update_')
         tmp_exe = os.path.join(tmp_dir, 'WarzoneAudioEnhancer_new.exe')
 
         try:
             _push_js('onUpdateProgress({"status":"downloading","progress":0})')
-            req = urllib.request.Request(download_url, headers={'User-Agent': 'WarzoneAudioEnhancer'})
-            with urllib.request.urlopen(req, timeout=120, context=ctx) as resp:
+            req = _urllib_request.Request(download_url, headers={'User-Agent': 'WarzoneAudioEnhancer'})
+            with _urllib_request.urlopen(req, timeout=120, context=ctx) as resp:
                 total = int(resp.headers.get('Content-Length', 0))
                 downloaded = 0
                 with open(tmp_exe, 'wb') as f:
@@ -402,18 +394,27 @@ class Api:
             _push_js('onUpdateProgress({"status":"installing","progress":100})')
             time.sleep(0.5)
 
-            # Bat: espera 2s (para que el proceso cierre), copia el nuevo exe, relanza
+            # VBScript launcher: equivalente a doble-click, inicia el exe en el
+            # contexto correcto de escritorio Windows (WScript.Shell.Run).
+            # El 'start ""' del bat falla porque el cmd padre tiene CREATE_NO_WINDOW
+            # y eso impide que pythonnet/CLR inicialice WinForms correctamente.
+            vbs_path = os.path.join(tmp_dir, 'launch.vbs')
+            with open(vbs_path, 'w') as _vf:
+                _vf.write(f'Set sh = CreateObject("WScript.Shell")\r\n')
+                _vf.write(f'sh.Run Chr(34) & "{current_exe}" & Chr(34), 1, False\r\n')
+
             bat_path = os.path.join(tmp_dir, 'updater.bat')
             bat = (
                 '@echo off\r\n'
-                'ping -n 3 127.0.0.1 > nul\r\n'
+                'ping -n 6 127.0.0.1 > nul\r\n'
                 f'copy /y "{tmp_exe}" "{current_exe}"\r\n'
-                f'start "" "{current_exe}"\r\n'
+                f'del /f "{tmp_exe}"\r\n'
+                f'wscript "{vbs_path}"\r\n'
             )
             with open(bat_path, 'w') as f:
                 f.write(bat)
 
-            subprocess.Popen(
+            _subprocess.Popen(
                 ['cmd', '/c', bat_path],
                 creationflags=0x08000000,  # CREATE_NO_WINDOW
                 close_fds=True,
@@ -421,6 +422,17 @@ class Api:
 
             time.sleep(0.5)
             engine.stop()
+            _unregister_hotkeys()
+            # Destruir la ventana limpiamente para que WebView2 libere el lock
+            # en su carpeta de datos de usuario antes de que el nuevo exe arranque.
+            # Sin esto, el nuevo exe falla con "Cannot find WebView2.Core.dll"
+            # porque la sesión anterior dejó un lock activo.
+            if _window:
+                try:
+                    _window.destroy()
+                    time.sleep(1.0)
+                except Exception:
+                    pass
             os._exit(0)
 
         except Exception as exc:
@@ -432,12 +444,8 @@ class Api:
 
     def _gh_api(self, path: str, method: str = 'GET', body=None, token: str = None):
         """Llamada a la API de GitHub. Devuelve (status_code, dict_or_bytes)."""
-        import urllib.request, urllib.error, json as _json, ssl
-        try:
-            import certifi
-            ctx = ssl.create_default_context(cafile=certifi.where())
-        except Exception:
-            ctx = ssl.create_default_context()
+        import urllib.error, json as _json
+        ctx = _ssl.create_default_context()
         url = f'https://api.github.com{path}'
         headers = {
             'User-Agent': 'WarzoneAudioEnhancer',
@@ -446,9 +454,9 @@ class Api:
         if token:
             headers['Authorization'] = f'Bearer {token}'
         data = _json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        req = _urllib_request.Request(url, data=data, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
+            with _urllib_request.urlopen(req, timeout=20, context=ctx) as r:
                 raw = r.read()
                 try:
                     return r.status, _json.loads(raw)
@@ -459,9 +467,8 @@ class Api:
 
     def _get_gh_token(self) -> str:
         """Lee el token de GitHub del credential manager de Windows (igual que git)."""
-        import subprocess
         try:
-            result = subprocess.run(
+            result = _subprocess.run(
                 ['git', 'credential', 'fill'],
                 input='protocol=https\nhost=github.com\n',
                 capture_output=True, text=True, timeout=5,
@@ -478,19 +485,14 @@ class Api:
         Descarga el modelo comunitario desde GitHub Releases y lo instala localmente.
         No requiere autenticación (release público).
         """
-        import urllib.request, ssl, pickle, io
+        import pickle
         REPO = 'mojotuning/Anki-Audio-boost'
         BASE = f'https://github.com/{REPO}/releases/latest/download'
-
-        try:
-            import certifi
-            ctx = ssl.create_default_context(cafile=certifi.where())
-        except Exception:
-            ctx = ssl.create_default_context()
+        ctx = _ssl.create_default_context()
 
         def _dl(url):
-            req = urllib.request.Request(url, headers={'User-Agent': 'WarzoneAudioEnhancer'})
-            with urllib.request.urlopen(req, timeout=30, context=ctx) as r:
+            req = _urllib_request.Request(url, headers={'User-Agent': 'WarzoneAudioEnhancer'})
+            with _urllib_request.urlopen(req, timeout=30, context=ctx) as r:
                 return r.read()
 
         try:
@@ -578,12 +580,7 @@ class Api:
         upload_url_base = f'https://uploads.github.com/repos/{REPO}/releases/{release_id}/assets'
 
         def _upload_asset(name: str, data: bytes, content_type: str = 'application/octet-stream'):
-            import urllib.request, ssl
-            try:
-                import certifi
-                ctx = ssl.create_default_context(cafile=certifi.where())
-            except Exception:
-                ctx = ssl.create_default_context()
+            ctx = _ssl.create_default_context()
             # Borrar el asset anterior si existe
             _, assets = self._gh_api(f'/repos/{REPO}/releases/{release_id}/assets', token=token)
             if isinstance(assets, list):
@@ -598,9 +595,9 @@ class Api:
                 'Content-Type':  content_type,
                 'Content-Length': str(len(data)),
             }
-            req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+            req = _urllib_request.Request(url, data=data, headers=headers, method='POST')
             try:
-                with urllib.request.urlopen(req, timeout=60, context=ctx) as r:
+                with _urllib_request.urlopen(req, timeout=60, context=ctx) as r:
                     return r.status
             except Exception:
                 return 0
@@ -669,19 +666,13 @@ class Api:
         Descarga las muestras comunitarias del último release y las fusiona localmente.
         Después reentrena el modelo con el conjunto fusionado.
         """
-        import urllib.request, ssl
         REPO = 'mojotuning/Anki-Audio-boost'
         URL  = f'https://github.com/{REPO}/releases/download/community-model/community_samples.json'
+        ctx = _ssl.create_default_context()
 
         try:
-            import certifi
-            ctx = ssl.create_default_context(cafile=certifi.where())
-        except Exception:
-            ctx = ssl.create_default_context()
-
-        try:
-            req = urllib.request.Request(URL, headers={'User-Agent': 'WarzoneAudioEnhancer'})
-            with urllib.request.urlopen(req, timeout=30, context=ctx) as r:
+            req = _urllib_request.Request(URL, headers={'User-Agent': 'WarzoneAudioEnhancer'})
+            with _urllib_request.urlopen(req, timeout=30, context=ctx) as r:
                 community_json = r.read().decode()
         except Exception as e:
             return {'ok': False, 'error': f'No se pudo descargar muestras: {e}'}
@@ -700,7 +691,7 @@ class Api:
         }
 
 
-VERSION = '1.5.4'
+VERSION = '1.5.8'
 
 # ─── Bandeja del sistema (system tray) ────────────────────────────────────────
 try:
@@ -935,23 +926,25 @@ if __name__ == '__main__':
     try:
         webview.start(http_server=True, debug=False)
     except FileNotFoundError as e:
-        if 'WebView2' in str(e) and not _is_webview2_installed():
+        if 'WebView2' in str(e) or 'webview2' in str(e).lower():
+            # Siempre ofrecer instalar/reinstalar: la DLL falta independientemente del registro
             _install_webview2()
         else:
             _msgbox('Warzone Audio Enhancer — Error',
-                    f'Error al iniciar (FileNotFoundError):\n\n{e}\n\n'
-                    'Si WebView2 está instalado, intenta reinstalarlo desde:\n'
-                    'https://aka.ms/webview2', 0x00 | 0x10)
+                    f'Error al iniciar:\n\n{e}\n\n'
+                    'Si persiste, visita:\nhttps://github.com/mojotuning/Anki-Audio-boost/issues',
+                    0x00 | 0x10)
             sys.exit(1)
     except RuntimeError as e:
         es = str(e).lower()
-        if ('net runtime' in es or 'netfx' in es or 'dotnet' in es) and not _is_dotnet8_installed():
+        if ('net runtime' in es or 'netfx' in es or 'dotnet' in es or 'clr' in es) and not _is_dotnet8_installed():
             _install_dotnet()
         else:
             _msgbox('Warzone Audio Enhancer — Error',
-                    f'Error al iniciar (RuntimeError):\n\n{e}\n\n'
-                    'Asegúrate de tener .NET 8 Desktop Runtime instalado:\n'
-                    'https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe', 0x00 | 0x10)
+                    f'Error al iniciar:\n\n{e}\n\n'
+                    'Si el error menciona WebView2:\nhttps://aka.ms/webview2\n\n'
+                    'Si el error menciona .NET:\nhttps://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe\n\n'
+                    'Si persiste:\nhttps://github.com/mojotuning/Anki-Audio-boost/issues', 0x00 | 0x10)
             sys.exit(1)
     except OSError as e:
         es = str(e).lower()
@@ -959,14 +952,25 @@ if __name__ == '__main__':
             _install_dotnet()
         else:
             _msgbox('Warzone Audio Enhancer — Error',
-                    f'Error al iniciar (OSError):\n\n{e}\n\n'
+                    f'Error al iniciar:\n\n{e}\n\n'
                     'Si persiste, visita:\nhttps://github.com/mojotuning/Anki-Audio-boost/issues',
                     0x00 | 0x10)
             sys.exit(1)
     except Exception as e:
-        _msgbox('Warzone Audio Enhancer — Error inesperado',
-                f'{type(e).__name__}:\n\n{e}\n\n'
-                'Visita:\nhttps://github.com/mojotuning/Anki-Audio-boost/issues',
-                0x00 | 0x10)
+        from webview import WebViewException  # noqa: F401 – resolve sin reimportar
+        if isinstance(e, WebViewException):
+            es = str(e).lower()
+            # pythonnet no pudo cargar el CLR → probablemente falta .NET
+            if ('pythonnet' in es or 'clr' in es or 'net runtime' in es) and not _is_dotnet8_installed():
+                _install_dotnet()
+            _msgbox('Warzone Audio Enhancer — Error',
+                    f'Error al iniciar (WebView):\n\n{e}\n\n'
+                    'Requiere .NET 8 Desktop Runtime:\nhttps://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe\n\n'
+                    'Y/o WebView2 Runtime:\nhttps://aka.ms/webview2', 0x00 | 0x10)
+        else:
+            _msgbox('Warzone Audio Enhancer — Error inesperado',
+                    f'{type(e).__name__}:\n\n{e}\n\n'
+                    'Visita:\nhttps://github.com/mojotuning/Anki-Audio-boost/issues',
+                    0x00 | 0x10)
         sys.exit(1)
 

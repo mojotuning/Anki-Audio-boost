@@ -2024,8 +2024,6 @@ async function refreshSettingsPage() {
 }
 
 // ─── Buscar actualización ────────────────────────────────────────────────
-let _pendingUpdateUrl = null;
-
 async function checkForUpdates() {
   const btn = document.getElementById('updateBtn');
   const res = document.getElementById('updateResult');
@@ -2033,7 +2031,6 @@ async function checkForUpdates() {
   btn.textContent = 'COMPROBANDO...';
   res.className = 'update-result';
   res.textContent = '';
-  _pendingUpdateUrl = null;
   try {
     const d = await window.pywebview.api.check_for_updates();
     if (d.error) {
@@ -2044,17 +2041,20 @@ async function checkForUpdates() {
     } else if (d.up_to_date) {
       res.className = 'update-result show-ok';
       res.textContent = '✓ ACTUALIZADO  //  Tienes la última versión: v' + d.current;
-      // Bloquear el botón — no hay descarga posible
       btn.disabled = true;
       btn.textContent = '✓ AL DÍA';
       btn.style.opacity = '0.5';
     } else {
-      _pendingUpdateUrl = d.download_url;
+      // Nueva versión disponible: abrir página de releases en el navegador del sistema.
+      // No hacemos reemplazo del exe en caliente (AV lo bloquea sin firma de código).
+      const releaseUrl = d.release_url || 'https://github.com/mojotuning/Anki-Audio-boost/releases';
       res.className = 'update-result show-new';
       res.innerHTML =
-        '[UPDATE] Nueva versión disponible: <b>v' + d.latest + '</b><br><br>' +
-        '<button class="btn btn-green" style="padding:6px 18px;font-size:9px;letter-spacing:2px" onclick="installUpdate()">⬇ INSTALAR AUTOMÁTICAMENTE</button>' +
-        '&nbsp;&nbsp;<a href="#" onclick="openExternal(\'' + d.download_url + '\')" style="color:var(--textdim);font-family:\'Share Tech Mono\',monospace;font-size:10px">Descargar manual ↗</a>';
+        '[UPDATE] Nueva versión disponible: <b>v' + d.latest + '</b>  →  v' + d.current + ' instalada<br><br>' +
+        '<button class="btn btn-green" style="padding:6px 18px;font-size:9px;letter-spacing:2px" ' +
+        'onclick="openExternal(\'' + releaseUrl + '\')">⬇ DESCARGAR v' + d.latest + ' ↗</button>' +
+        '<span style="color:var(--textdim);font-family:\'Share Tech Mono\',monospace;font-size:10px;margin-left:14px">' +
+        'Se abre el navegador · descarga el .exe · ejecútalo</span>';
       btn.disabled = false;
       btn.textContent = '↻ BUSCAR ACTUALIZACIÓN';
     }
@@ -2063,39 +2063,6 @@ async function checkForUpdates() {
     res.textContent = '[ERROR] ' + e;
     btn.disabled = false;
     btn.textContent = '↻ BUSCAR ACTUALIZACIÓN';
-  }
-}
-
-async function installUpdate() {
-  if (!_pendingUpdateUrl) return;
-  const res = document.getElementById('updateResult');
-  res.className = 'update-result show-ok';
-  res.innerHTML =
-    '<div id="updateProgressText">Iniciando descarga...</div>' +
-    '<div style="background:var(--bg3);height:5px;margin-top:8px;border:1px solid var(--border)">' +
-      '<div id="updateBar" style="background:var(--green);height:5px;width:0%;transition:width 0.25s"></div>' +
-    '</div>';
-  try {
-    await window.pywebview.api.install_update(_pendingUpdateUrl);
-  } catch(e) {
-    res.className = 'update-result show-err';
-    res.textContent = '[ERROR] ' + e;
-  }
-}
-
-// Llamado desde Python vía _push_js durante la descarga
-function onUpdateProgress(data) {
-  const txt = document.getElementById('updateProgressText');
-  const bar = document.getElementById('updateBar');
-  if (data.status === 'downloading') {
-    if (txt) txt.textContent = 'Descargando nueva versión... ' + data.progress + '%';
-    if (bar) bar.style.width = data.progress + '%';
-  } else if (data.status === 'installing') {
-    if (txt) txt.textContent = '✓ Descarga completa. Instalando y reiniciando...';
-    if (bar) bar.style.width = '100%';
-  } else if (data.status === 'error') {
-    const res = document.getElementById('updateResult');
-    if (res) { res.className = 'update-result show-err'; res.textContent = '[ERROR] ' + data.msg; }
   }
 }
 

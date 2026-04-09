@@ -342,7 +342,7 @@ class Api:
                 'current': VERSION,
                 'latest': latest,
                 'up_to_date': up_to_date,
-                'download_url': exe_url,
+                'release_url': release_url,
             }
         except Exception as exc:
             return {'error': str(exc), 'current': VERSION}
@@ -351,115 +351,6 @@ class Api:
         import webbrowser
         webbrowser.open(url)
         return True
-
-    def install_update(self, download_url):
-        """Descarga el nuevo exe, crea un bat que reemplaza el exe actual y relanza."""
-        import threading
-        # Validar que la URL es de GitHub para evitar descargar de fuentes externas
-        if not download_url.startswith('https://github.com/') and \
-           not download_url.startswith('https://objects.githubusercontent.com/'):
-            return {'error': 'URL de descarga no válida'}
-        threading.Thread(target=self._download_and_install, args=(download_url,), daemon=True).start()
-        return {'started': True}
-
-    def _download_and_install(self, download_url):
-        import time
-        ctx = _ssl.create_default_context()
-
-        if not getattr(sys, 'frozen', False):
-            _push_js('onUpdateProgress({"status":"error","msg":"Auto-update solo funciona desde el .exe instalado, no en modo dev"})')
-            return
-
-        current_exe = sys.executable
-        tmp_dir = os.path.join(os.environ.get('LOCALAPPDATA', _tempfile.gettempdir()), 'WarzoneAudioEnhancer', 'update')
-        os.makedirs(tmp_dir, exist_ok=True)
-        tmp_exe = os.path.join(tmp_dir, 'WarzoneAudioEnhancer_new.exe')
-        backup_exe = os.path.join(tmp_dir, 'WarzoneAudioEnhancer_backup.exe')
-
-        try:
-            _push_js('onUpdateProgress({"status":"downloading","progress":0})')
-            req = _urllib_request.Request(download_url, headers={'User-Agent': 'WarzoneAudioEnhancer'})
-            with _urllib_request.urlopen(req, timeout=120, context=ctx) as resp:
-                total = int(resp.headers.get('Content-Length', 0))
-                downloaded = 0
-                with open(tmp_exe, 'wb') as f:
-                    while True:
-                        chunk = resp.read(65536)
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total > 0:
-                            pct = min(int(downloaded * 100 / total), 99)
-                            _push_js(f'onUpdateProgress({{"status":"downloading","progress":{pct}}})')
-
-            expected_size = os.path.getsize(tmp_exe)
-
-            _push_js('onUpdateProgress({"status":"installing","progress":100})')
-            time.sleep(0.5)
-
-            # VBScript launcher: equivalente a doble-click, inicia el exe en el
-            # contexto correcto de escritorio Windows (WScript.Shell.Run).
-            # El 'start ""' del bat falla porque el cmd padre tiene CREATE_NO_WINDOW
-            # y eso impide que pythonnet/CLR inicialice WinForms correctamente.
-            vbs_path = os.path.join(tmp_dir, 'launch.vbs')
-            with open(vbs_path, 'w') as _vf:
-                _vf.write(f'Set sh = CreateObject("WScript.Shell")\r\n')
-                _vf.write(f'sh.Run Chr(34) & "{current_exe}" & Chr(34), 1, False\r\n')
-
-            bat_path = os.path.join(tmp_dir, 'updater.bat')
-            bat = (
-                '@echo off\r\n'
-                'setlocal EnableExtensions EnableDelayedExpansion\r\n'
-                'ping -n 6 127.0.0.1 > nul\r\n'
-                'mkdir "%LOCALAPPDATA%\\WarzoneAudioEnhancer" 2>nul\r\n'
-                'for /d %%D in ("%LOCALAPPDATA%\\WarzoneAudioEnhancer\\_MEI*") do rd /s /q "%%~fD" 2>nul\r\n'
-                f'del /f /q "{backup_exe}" 2>nul\r\n'
-                f'copy /y "{current_exe}" "{backup_exe}" >nul 2>nul\r\n'
-                'set REPLACED=0\r\n'
-                'for /l %%I in (1,1,8) do (\r\n'
-                f'  copy /y "{tmp_exe}" "{current_exe}" >nul 2>nul\r\n'
-                f'  for %%A in ("{current_exe}") do set CURSIZE=%%~zA\r\n'
-                f'  if "!CURSIZE!"=="{expected_size}" set REPLACED=1\r\n'
-                '  if "!REPLACED!"=="1" goto launch\r\n'
-                '  ping -n 3 127.0.0.1 > nul\r\n'
-                ')\r\n'
-                ':restore\r\n'
-                f'copy /y "{backup_exe}" "{current_exe}" >nul 2>nul\r\n'
-                'exit /b 1\r\n'
-                ':launch\r\n'
-                'ping -n 3 127.0.0.1 > nul\r\n'
-                f'del /f /q "{tmp_exe}" 2>nul\r\n'
-                f'wscript "{vbs_path}"\r\n'
-            )
-            with open(bat_path, 'w') as f:
-                f.write(bat)
-
-            _subprocess.Popen(
-                ['cmd', '/c', bat_path],
-                creationflags=0x08000000,  # CREATE_NO_WINDOW
-                close_fds=True,
-            )
-
-            time.sleep(0.5)
-            engine.stop()
-            _unregister_hotkeys()
-            # Destruir la ventana limpiamente para que WebView2 libere el lock
-            # en su carpeta de datos de usuario antes de que el nuevo exe arranque.
-            # Sin esto, el nuevo exe falla con "Cannot find WebView2.Core.dll"
-            # porque la sesión anterior dejó un lock activo.
-            if _window:
-                try:
-                    _window.destroy()
-                    time.sleep(1.0)
-                except Exception:
-                    pass
-            os._exit(0)
-
-        except Exception as exc:
-            err = str(exc).replace('"', "'").replace('\n', ' ')
-            _push_js(f'onUpdateProgress({{"status":"error","msg":"{err}"}})')
-
 
     # ─── Comunidad ────────────────────────────────────────────────────────────
 
@@ -712,7 +603,7 @@ class Api:
         }
 
 
-VERSION = '1.5.13'
+VERSION = '1.5.14'
 
 # ─── Bandeja del sistema (system tray) ────────────────────────────────────────
 try:

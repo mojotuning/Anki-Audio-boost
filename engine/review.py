@@ -93,9 +93,22 @@ class ReviewMixin:
             return {'ok': False, 'error': 'sounddevice not available'}
         try:
             _sd.stop()
-            # Usar la salida por defecto del sistema en lugar del output_device del stream,
-            # ya que ese dispositivo puede estar bloqueado por el stream principal de PortAudio.
-            _sd.play(entry['audio'].astype(np.float32), SAMPLE_RATE, device=None)
+            audio_out = entry['audio'].astype(np.float32)
+            # Normalizar para que la preview sea audible aunque la captura
+            # sea tenue (audio de juego suele estar a -18...-24 dBFS).
+            peak = float(np.max(np.abs(audio_out)))
+            if peak > 1e-4:
+                # Boost hasta 0.8 FS; cap a ×10 para no amplificar ruido puro
+                audio_out = audio_out * min(0.8 / peak, 10.0)
+            # Usar el output_device configurado por el usuario (auriculares/altavoces).
+            # device=None mapeaba al cable virtual / Voicemeeter Input → bucle de feedback → estática.
+            # WASAPI shared permite múltiples streams simultáneos en el mismo dispositivo.
+            dev = getattr(self, 'output_device', None)
+            try:
+                _sd.play(audio_out, SAMPLE_RATE, device=dev)
+            except Exception:
+                # Fallback: dispositivo por defecto del sistema
+                _sd.play(audio_out, SAMPLE_RATE, device=None)
             return {'ok': True}
         except Exception as e:
             return {'ok': False, 'error': str(e)}

@@ -603,7 +603,7 @@ class Api:
         }
 
 
-VERSION = '1.5.14'
+VERSION = '1.5.15'
 
 # ─── Bandeja del sistema (system tray) ────────────────────────────────────────
 try:

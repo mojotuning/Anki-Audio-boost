@@ -97,12 +97,11 @@ class ReviewMixin:
             from scipy.io import wavfile
 
             audio_out = entry['audio'].astype(np.float32)
-            # Normalizar a 80 % FS para que sea audible
-            # (captura de juego suele estar a -18...-24 dBFS)
+            # Normalizar para que sea audible (game audio suele estar a -18...-24 dBFS)
+            # Sin mezcla de canales — se envía estéreo completo tal como fue capturado.
             peak = float(np.max(np.abs(audio_out)))
             if peak > 1e-4:
-                audio_out = audio_out * min(0.8 / peak, 10.0)
-            audio_out = np.clip(audio_out, -1.0, 1.0)
+                audio_out = audio_out * (0.8 / peak)
 
             buf = io.BytesIO()
             wavfile.write(buf, SAMPLE_RATE, audio_out)

@@ -371,7 +371,8 @@ class Api:
             return
 
         current_exe = sys.executable
-        tmp_dir = _tempfile.mkdtemp(prefix='wze_update_')
+        tmp_dir = os.path.join(os.environ.get('LOCALAPPDATA', _tempfile.gettempdir()), 'WarzoneAudioEnhancer', 'update')
+        os.makedirs(tmp_dir, exist_ok=True)
         tmp_exe = os.path.join(tmp_dir, 'WarzoneAudioEnhancer_new.exe')
 
         try:
@@ -407,6 +408,7 @@ class Api:
             bat = (
                 '@echo off\r\n'
                 'ping -n 6 127.0.0.1 > nul\r\n'
+                'mkdir "%LOCALAPPDATA%\\WarzoneAudioEnhancer" 2>nul\r\n'
                 f'copy /y "{tmp_exe}" "{current_exe}"\r\n'
                 f'del /f "{tmp_exe}"\r\n'
                 f'wscript "{vbs_path}"\r\n'
@@ -691,7 +693,7 @@ class Api:
         }
 
 
-VERSION = '1.5.9'
+VERSION = '1.5.10'
 
 # ─── Bandeja del sistema (system tray) ────────────────────────────────────────
 try:

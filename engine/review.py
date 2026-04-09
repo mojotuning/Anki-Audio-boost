@@ -84,32 +84,30 @@ class ReviewMixin:
         return result
 
     def play_sample(self, sample_id: int) -> dict:
-        """Reproduce el chunk por el dispositivo de salida configurado."""
+        """Codifica el chunk como WAV base64 para reproducción en el navegador.
+        No usa PortAudio (sd.play) para evitar conflictos con el stream principal
+        y el routing incorrecto por virtual cables."""
         with self._review_lock:
             entry = self._review_store.get(int(sample_id))
         if not entry:
             return {'ok': False, 'error': 'sample not found'}
-        if not _SD_OK:
-            return {'ok': False, 'error': 'sounddevice not available'}
         try:
-            _sd.stop()
+            import io
+            import base64
+            from scipy.io import wavfile
+
             audio_out = entry['audio'].astype(np.float32)
-            # Normalizar para que la preview sea audible aunque la captura
-            # sea tenue (audio de juego suele estar a -18...-24 dBFS).
+            # Normalizar a 80 % FS para que sea audible
+            # (captura de juego suele estar a -18...-24 dBFS)
             peak = float(np.max(np.abs(audio_out)))
             if peak > 1e-4:
-                # Boost hasta 0.8 FS; cap a ×10 para no amplificar ruido puro
                 audio_out = audio_out * min(0.8 / peak, 10.0)
-            # Usar el output_device configurado por el usuario (auriculares/altavoces).
-            # device=None mapeaba al cable virtual / Voicemeeter Input → bucle de feedback → estática.
-            # WASAPI shared permite múltiples streams simultáneos en el mismo dispositivo.
-            dev = getattr(self, 'output_device', None)
-            try:
-                _sd.play(audio_out, SAMPLE_RATE, device=dev)
-            except Exception:
-                # Fallback: dispositivo por defecto del sistema
-                _sd.play(audio_out, SAMPLE_RATE, device=None)
-            return {'ok': True}
+            audio_out = np.clip(audio_out, -1.0, 1.0)
+
+            buf = io.BytesIO()
+            wavfile.write(buf, SAMPLE_RATE, audio_out)
+            audio_b64 = base64.b64encode(buf.getvalue()).decode('ascii')
+            return {'ok': True, 'audio_b64': audio_b64}
         except Exception as e:
             return {'ok': False, 'error': str(e)}
 

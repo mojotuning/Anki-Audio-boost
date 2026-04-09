@@ -1408,6 +1408,8 @@ async function refreshReviewPanel() {
 }
 
 let _playingId = null;
+let _activeAudioSrc = null;
+let _audioCtx = null;
 
 async function playReviewSample(id, btn) {
   // Si ya estamos reproduciendo este ID, detener
@@ -1421,21 +1423,37 @@ async function playReviewSample(id, btn) {
   if (_playingId !== null) {
     const prevBtn = document.getElementById('play-' + _playingId);
     if (prevBtn) { prevBtn.textContent = '▶ ESCUCHAR'; prevBtn.classList.remove('btn-green'); }
+    stopPlayback();
   }
   try {
-    await window.pywebview.api.play_sample(id);
+    const result = await window.pywebview.api.play_sample(id);
+    if (!result.ok) { log('Error reproduciendo: ' + (result.error || '?'), 'err'); return; }
+
+    // Decodificar WAV base64 y reproducir vía Web Audio API
+    // (evita PortAudio y el routing incorrecto por virtual cables)
+    const binary = atob(result.audio_b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+    if (!_audioCtx || _audioCtx.state === 'closed') _audioCtx = new AudioContext();
+    if (_audioCtx.state === 'suspended') await _audioCtx.resume();
+
+    const audioBuffer = await _audioCtx.decodeAudioData(bytes.buffer);
+    const source = _audioCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(_audioCtx.destination);
+    _activeAudioSrc = source;
+
     _playingId = id;
     if (btn) { btn.textContent = '◼ DETENER'; btn.classList.add('btn-green'); }
-    // Auto-reset tras la duración del clip
-    const card = document.getElementById('rc-' + id);
-    const durationEl = card ? card.querySelector('span[style*="10px"]') : null;
-    const ms = durationEl ? parseInt(durationEl.textContent) : 600;
-    setTimeout(() => {
+
+    source.onended = () => {
       if (_playingId === id) {
         _playingId = null;
         if (btn) { btn.textContent = '▶ ESCUCHAR'; btn.classList.remove('btn-green'); }
       }
-    }, ms + 200);
+    };
+    source.start(0);
   } catch(e) {
     log('Error reproduciendo: ' + e, 'err');
   }
@@ -1443,6 +1461,7 @@ async function playReviewSample(id, btn) {
 
 async function stopPlayback() {
   _playingId = null;
+  if (_activeAudioSrc) { try { _activeAudioSrc.stop(); } catch(e) {} _activeAudioSrc = null; }
   try { await window.pywebview.api.stop_playback(); } catch(e) {}
 }
 

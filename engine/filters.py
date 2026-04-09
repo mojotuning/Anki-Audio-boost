@@ -53,8 +53,10 @@ class FiltersMixin:
         if low >= high:
             return audio
 
-        band_key        = (low_hz, high_hz)
-        sos             = signal.butter(4, [low, high], btype='band', output='sos')
+        band_key = (low_hz, high_hz)
+        if band_key not in self._sos_cache:
+            self._sos_cache[band_key] = signal.butter(4, [low, high], btype='band', output='sos')
+        sos = self._sos_cache[band_key]
         n_ch            = audio.shape[1] if audio.ndim > 1 else 1
         gain_linear_full = 10.0 ** (gain_db / 20.0)
         boosting        = gain_db > 0.0
@@ -100,7 +102,10 @@ class FiltersMixin:
 
     def _apply_highpass(self, audio: np.ndarray) -> np.ndarray:
         """Butterworth HPF a 100 Hz con estado persistente (sin clicks)."""
-        sos  = signal.butter(4, 100.0 / (SAMPLE_RATE / 2.0), btype='highpass', output='sos')
+        _hp_key = ('hp', 100)
+        if _hp_key not in self._sos_cache:
+            self._sos_cache[_hp_key] = signal.butter(4, 100.0 / (SAMPLE_RATE / 2.0), btype='highpass', output='sos')
+        sos  = self._sos_cache[_hp_key]
         n_ch = audio.shape[1] if audio.ndim > 1 else 1
         result = audio.copy()
         for ch in range(n_ch):

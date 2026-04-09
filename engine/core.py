@@ -73,6 +73,7 @@ class AudioEngine(FeaturesMixin, FiltersMixin, MLMixin, ReviewMixin, StreamMixin
 
         # ── Upward expander ───────────────────────────────────────────────
         self._band_noise_floor:    dict  = {}
+        self._sos_cache:           dict  = {}  # coeficientes SOS Butterworth por banda (inmutables)
         self._expander_alpha_slow  = 0.001  # tau ≈ 20 s
         self._expander_alpha_fast  = 0.05   # tau ≈ 0.4 s
         self._expander_threshold_db = 6.0   # dB sobre el piso para boost completo

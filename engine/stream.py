@@ -21,9 +21,11 @@ class StreamMixin:
         """Callback del stream de audio — DEBE ser ultrarrápido, sin cálculos pesados."""
         try:
             audio = indata.copy()
-            # Durante grabación, pasar audio limpio sin EQ (evita artefactos/estática)
-            eff   = "unknown" if self.training_mode else self.effective_prediction
-            processed = self.process_audio(audio, eff)
+            # Durante grabación, pasar audio limpio sin EQ (bypass completo)
+            if self.training_mode:
+                processed = audio.copy().astype(np.float32)
+            else:
+                processed = self.process_audio(audio, self.effective_prediction)
             outdata[:] = processed
 
             # Nivel RMS para el visualizador (operación mínima)
@@ -179,9 +181,11 @@ class StreamMixin:
             def _in_cb(indata, frames, time_info, status):
                 try:
                     audio = indata.copy()
-                    # Durante grabación, pasar audio limpio sin EQ
-                    eff      = "unknown" if self.training_mode else self.effective_prediction
-                    processed = self.process_audio(audio, eff)
+                    # Durante grabación, pasar audio limpio sin EQ (bypass completo)
+                    if self.training_mode:
+                        processed = audio.copy().astype(np.float32)
+                    else:
+                        processed = self.process_audio(audio, self.effective_prediction)
                     if processed.shape[1] != o_ch:
                         if processed.shape[1] > o_ch:
                             processed = processed[:, :o_ch]

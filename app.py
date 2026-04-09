@@ -374,6 +374,7 @@ class Api:
         tmp_dir = os.path.join(os.environ.get('LOCALAPPDATA', _tempfile.gettempdir()), 'WarzoneAudioEnhancer', 'update')
         os.makedirs(tmp_dir, exist_ok=True)
         tmp_exe = os.path.join(tmp_dir, 'WarzoneAudioEnhancer_new.exe')
+        backup_exe = os.path.join(tmp_dir, 'WarzoneAudioEnhancer_backup.exe')
 
         try:
             _push_js('onUpdateProgress({"status":"downloading","progress":0})')
@@ -392,6 +393,8 @@ class Api:
                             pct = min(int(downloaded * 100 / total), 99)
                             _push_js(f'onUpdateProgress({{"status":"downloading","progress":{pct}}})')
 
+            expected_size = os.path.getsize(tmp_exe)
+
             _push_js('onUpdateProgress({"status":"installing","progress":100})')
             time.sleep(0.5)
 
@@ -407,10 +410,26 @@ class Api:
             bat_path = os.path.join(tmp_dir, 'updater.bat')
             bat = (
                 '@echo off\r\n'
+                'setlocal EnableExtensions EnableDelayedExpansion\r\n'
                 'ping -n 6 127.0.0.1 > nul\r\n'
                 'mkdir "%LOCALAPPDATA%\\WarzoneAudioEnhancer" 2>nul\r\n'
-                f'copy /y "{tmp_exe}" "{current_exe}"\r\n'
-                f'del /f "{tmp_exe}"\r\n'
+                'for /d %%D in ("%LOCALAPPDATA%\\WarzoneAudioEnhancer\\_MEI*") do rd /s /q "%%~fD" 2>nul\r\n'
+                f'del /f /q "{backup_exe}" 2>nul\r\n'
+                f'copy /y "{current_exe}" "{backup_exe}" >nul 2>nul\r\n'
+                'set REPLACED=0\r\n'
+                'for /l %%I in (1,1,8) do (\r\n'
+                f'  copy /y "{tmp_exe}" "{current_exe}" >nul 2>nul\r\n'
+                f'  for %%A in ("{current_exe}") do set CURSIZE=%%~zA\r\n'
+                f'  if "!CURSIZE!"=="{expected_size}" set REPLACED=1\r\n'
+                '  if "!REPLACED!"=="1" goto launch\r\n'
+                '  ping -n 3 127.0.0.1 > nul\r\n'
+                ')\r\n'
+                ':restore\r\n'
+                f'copy /y "{backup_exe}" "{current_exe}" >nul 2>nul\r\n'
+                'exit /b 1\r\n'
+                ':launch\r\n'
+                'ping -n 3 127.0.0.1 > nul\r\n'
+                f'del /f /q "{tmp_exe}" 2>nul\r\n'
                 f'wscript "{vbs_path}"\r\n'
             )
             with open(bat_path, 'w') as f:
@@ -693,7 +712,7 @@ class Api:
         }
 
 
-VERSION = '1.5.11'
+VERSION = '1.5.12'
 
 # ─── Bandeja del sistema (system tray) ────────────────────────────────────────
 try:

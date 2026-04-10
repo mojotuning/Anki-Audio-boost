@@ -6,6 +6,10 @@ from scipy import signal
 
 from .config import SAMPLE_RATE
 
+# Clases de predicción por grupo — frozenset para lookup O(1) en el hot-path RT
+_CLS_MINE_FEET  = frozenset({'mine_feet', 'mine'})
+_CLS_ENEMY      = frozenset({'enemy_feet', 'enemy', 'enemy_guns'})
+
 
 class FiltersMixin:
 
@@ -45,7 +49,7 @@ class FiltersMixin:
         """Aplica ganancia a una banda usando sosfilt con estado persistente + upward expander.
         El expander asegura que no se amplifique el piso de ruido cuando no hay señal real.
         """
-        if gain_db == 0.0:
+        if abs(gain_db) < 0.05:   # umbral: evita aplicar filtros casi-neutros
             return audio
         nyq  = SAMPLE_RATE / 2.0
         low  = max(low_hz  / nyq, 0.001)
@@ -154,6 +158,77 @@ class FiltersMixin:
 
     # ─── Pipeline principal ───────────────────────────────────────────────────
 
+    def _process_audio_for_preview(self, audio_chunk: np.ndarray, prediction: str) -> np.ndarray:
+        """Aplica el mismo EQ que process_audio pero de forma stateless (sosfiltfilt,
+        fase cero) para que el preview suene como el audio normal sin contaminar
+        el estado del stream ni los datos de entrenamiento."""
+        processed = audio_chunk.copy().astype(np.float64)
+
+        # HP stateless (si está activado)
+        if self.noise_config['hp_enabled']:
+            _hp_key = ('hp', 100)
+            if _hp_key not in self._sos_cache:
+                self._sos_cache[_hp_key] = signal.butter(
+                    4, 100.0 / (SAMPLE_RATE / 2.0), btype='highpass', output='sos')
+            sos  = self._sos_cache[_hp_key]
+            n_ch = processed.shape[1] if processed.ndim > 1 else 1
+            for ch in range(n_ch):
+                x = processed[:, ch] if processed.ndim > 1 else processed.ravel()
+                y = signal.sosfiltfilt(sos, x)
+                if processed.ndim > 1:
+                    processed[:, ch] = y
+                else:
+                    processed = y
+
+        def _band(audio, low_hz, high_hz, gain_db):
+            if gain_db == 0.0:
+                return audio
+            nyq  = SAMPLE_RATE / 2.0
+            low  = max(low_hz  / nyq, 0.001)
+            high = min(high_hz / nyq, 0.999)
+            if low >= high:
+                return audio
+            band_key = (low_hz, high_hz)
+            if band_key not in self._sos_cache:
+                self._sos_cache[band_key] = signal.butter(
+                    4, [low, high], btype='band', output='sos')
+            sos         = self._sos_cache[band_key]
+            gain_linear = 10.0 ** (gain_db / 20.0)
+            n_ch        = audio.shape[1] if audio.ndim > 1 else 1
+            result      = audio.copy()
+            for ch in range(n_ch):
+                x  = audio[:, ch] if audio.ndim > 1 else audio.ravel()
+                b  = signal.sosfiltfilt(sos, x)
+                pc = x - b + b * gain_linear
+                if audio.ndim > 1:
+                    result[:, ch] = pc
+                else:
+                    result = pc
+            return result.astype(audio.dtype)
+
+        def db(key):
+            return 20.0 * np.log10(max(self.gains[key], 1e-6))
+
+        if prediction in _CLS_MINE_FEET:
+            processed = _band(processed, 80,  600,  db('own_footsteps'))
+            processed = _band(processed, 600, 4000, db('enemy_gunshots'))
+            processed = _band(processed, 40,  200,  db('airstrikes'))
+        elif prediction == 'mine_guns':
+            processed = _band(processed, 80,  600,  db('enemy_footsteps'))
+            processed = _band(processed, 600, 4000, db('own_gunshots'))
+            processed = _band(processed, 40,  200,  db('airstrikes'))
+        elif prediction == 'airstrike':
+            processed = _band(processed, 40,  200,  db('airstrike_vol'))
+            processed = _band(processed, 80,  600,  db('enemy_footsteps'))
+            processed = _band(processed, 600, 4000, db('enemy_gunshots'))
+        elif prediction in _CLS_ENEMY:
+            processed = _band(processed, 80,  600,  db('enemy_footsteps'))
+            processed = _band(processed, 600, 4000, db('enemy_gunshots'))
+            processed = _band(processed, 40,  200,  db('airstrikes'))
+        # else: unknown → solo HP si estaba habilitado, sin EQ
+
+        return processed.astype(np.float32)
+
     def process_audio(self, audio_chunk, prediction):
         """
         4 clases de entrenamiento:
@@ -182,27 +257,51 @@ class FiltersMixin:
         def db(key):
             return 20.0 * np.log10(max(self.gains[key], 1e-6))
 
-        if prediction in ('mine_feet', 'mine'):
-            processed = self.apply_eq_band(processed, 80, 600, db('own_footsteps'))
-            processed = self.apply_eq_band(processed, 600, 4000, db('enemy_gunshots'))
-            processed = self.apply_eq_band(processed, 40, 200, db('airstrikes'))
-
+        # ── EQ por clase: UNA banda por clase, sin solapamiento ─────────
+        # Problema anterior: cada clase aplicó 3 bandas simultáneamente usando
+        # ganancias de OTRAS clases. Eso causa:
+        #   · audio fino: corte de -20 dB en 80-600 Hz elimina el cuerpo del audio
+        #   · inconsistencia: 'mine_feet' también boostó 'enemy_gunshots' sin razón
+        # Solución: una clase → una banda, sin efectos colaterales.
+        if prediction in _CLS_MINE_FEET:
+            t_low, t_mid, t_sub = db('own_footsteps'), 0.0, 0.0      # cortar graves: mis pasos
         elif prediction == 'mine_guns':
-            processed = self.apply_eq_band(processed, 80, 600, db('enemy_footsteps'))
-            processed = self.apply_eq_band(processed, 600, 4000, db('own_gunshots'))
-            processed = self.apply_eq_band(processed, 40, 200, db('airstrikes'))
-
+            t_low, t_mid, t_sub = 0.0, db('own_gunshots'), 0.0       # cortar medios: mis disparos
+        elif prediction == 'enemy_feet' or prediction == 'enemy':
+            t_low, t_mid, t_sub = db('enemy_footsteps'), 0.0, 0.0    # boost graves: pasos enemigo
+        elif prediction == 'enemy_guns':
+            t_low, t_mid, t_sub = 0.0, db('enemy_gunshots'), 0.0     # boost medios: disparos enemigo
         elif prediction == 'airstrike':
-            processed = self.apply_eq_band(processed, 40, 200, db('airstrike_vol'))
-            processed = self.apply_eq_band(processed, 80, 600, db('enemy_footsteps'))
-            processed = self.apply_eq_band(processed, 600, 4000, db('enemy_gunshots'))
+            t_low, t_mid, t_sub = 0.0, 0.0, db('airstrike_vol')      # atenuar sub: ataque aéreo
+        else:   # unknown / sin modelo → no hay corrección, solo lo que ya se aplicó antes
+            t_low, t_mid, t_sub = 0.0, 0.0, 0.0
 
-        elif prediction in ('enemy_feet', 'enemy', 'enemy_guns'):
-            processed = self.apply_eq_band(processed, 80, 600, db('enemy_footsteps'))
-            processed = self.apply_eq_band(processed, 600, 4000, db('enemy_gunshots'))
-            processed = self.apply_eq_band(processed, 40, 200, db('airstrikes'))
+        # ── Interpolación suave hacia target: elimina clicks en transiciones ──
+        # Sin esto: cambio de clase en 1 bloque (21 ms) = salto brusco de ganancia
+        # en la banda = discontinuidad en el filtro IIR = click audible.
+        # Con _S=0.12: 8 bloques ≈ 170 ms de fundido cruzado.
+        _S = 0.12
+        eq = self._eq_smooth
+        eq['low_db'] += _S * (t_low - eq['low_db'])
+        eq['mid_db'] += _S * (t_mid - eq['mid_db'])
+        eq['sub_db'] += _S * (t_sub - eq['sub_db'])
 
-        else:  # unknown / sin modelo → passthrough, sin EQ
+        # ── Aplicar solo bandas con corrección significativa ──────────────
+        if abs(eq['low_db']) >= 0.05:
+            processed = self.apply_eq_band(processed, 80,  600,  eq['low_db'])
+        if abs(eq['mid_db']) >= 0.05:
+            processed = self.apply_eq_band(processed, 600, 4000, eq['mid_db'])
+        if abs(eq['sub_db']) >= 0.05:
+            processed = self.apply_eq_band(processed, 40,  200,  eq['sub_db'])
+
+        # ── Retorno directo si no hubo ningún procesamiento ──────────────
+        nr_active = (self.noise_config['hp_enabled'] or
+                     self.noise_config['gate_enabled'] or
+                     self.noise_config['nr_enabled'])
+        eq_active = (abs(eq['low_db']) >= 0.05 or
+                     abs(eq['mid_db']) >= 0.05 or
+                     abs(eq['sub_db']) >= 0.05)
+        if not eq_active and not nr_active:
             return audio_chunk.astype(np.float32)
 
         # ── Limiter suave con attack/release ────────────────────────────────

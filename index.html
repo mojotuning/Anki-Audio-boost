@@ -836,9 +836,9 @@
             Pasos Propios
             <small>80 – 600 Hz | SILENCIAR</small>
           </div>
-          <input type="range" id="gainOwnFeet" min="-30" max="0" step="0.5" value="-20"
+          <input type="range" id="gainOwnFeet" min="-20" max="0" step="0.5" value="-8"
                  oninput="updateGainDb('own_footsteps', this.value, 'valOF')">
-          <span class="slider-val" id="valOF">-20 dB</span>
+          <span class="slider-val" id="valOF">-8 dB</span>
         </div>
 
         <div class="slider-row">
@@ -846,9 +846,9 @@
             Mis Disparos
             <small>600 – 4000 Hz | ATENUAR</small>
           </div>
-          <input type="range" id="gainOwnGuns" min="-30" max="0" step="0.5" value="-20"
+          <input type="range" id="gainOwnGuns" min="-20" max="0" step="0.5" value="-8"
                  oninput="updateGainDb('own_gunshots', this.value, 'valOG')">
-          <span class="slider-val" id="valOG">-20 dB</span>
+          <span class="slider-val" id="valOG">-8 dB</span>
         </div>
 
         <div class="slider-row">
@@ -856,9 +856,9 @@
             Disparos Enemigos
             <small>600 – 4000 Hz | BOOST</small>
           </div>
-          <input type="range" id="gainGuns" min="-20" max="12" step="0.5" value="3"
+          <input type="range" id="gainGuns" min="-20" max="12" step="0.5" value="4"
                  oninput="updateGainDb('enemy_gunshots', this.value, 'valG')">
-          <span class="slider-val" id="valG">+3 dB</span>
+          <span class="slider-val" id="valG">+4 dB</span>
         </div>
 
         <div class="slider-row">
@@ -866,9 +866,9 @@
             Ataques Aéreos (detectados)
             <small>40 – 200 Hz | ATENUAR cuando se detectan</small>
           </div>
-          <input type="range" id="gainAirVol" min="-30" max="0" step="0.5" value="-16"
+          <input type="range" id="gainAirVol" min="-20" max="0" step="0.5" value="-8"
                  oninput="updateGainDb('airstrike_vol', this.value, 'valAV')">
-          <span class="slider-val" id="valAV">-16 dB</span>
+          <span class="slider-val" id="valAV">-8 dB</span>
         </div>
 
         <div class="slider-row">
@@ -876,9 +876,9 @@
             Ataques Aéreos (boost)
             <small>40 – 200 Hz | cuando NO detectados</small>
           </div>
-          <input type="range" id="gainAir" min="-20" max="12" step="0.5" value="3"
+          <input type="range" id="gainAir" min="-20" max="12" step="0.5" value="2"
                  oninput="updateGainDb('airstrikes', this.value, 'valA')">
-          <span class="slider-val" id="valA">+3 dB</span>
+          <span class="slider-val" id="valA">+2 dB</span>
         </div>
 
         <!-- Umbral de confianza ML -->
@@ -1294,6 +1294,17 @@ function onPrediction(pred, conf) {
 }
 
 function onStatus(msg) {
+  // Señal interna del motor: el preview por stream ha terminado
+  if (msg === '__preview_ended__') {
+    clearTimeout(_previewEndTimer);
+    _previewEndTimer = null;
+    if (_playingId !== null) {
+      const btn = document.getElementById('play-' + _playingId);
+      if (btn) { btn.textContent = '▶ ESCUCHAR'; btn.classList.remove('btn-green'); }
+      _playingId = null;
+    }
+    return;
+  }
   log(msg);
 }
 
@@ -1410,6 +1421,7 @@ async function refreshReviewPanel() {
 let _playingId = null;
 let _activeAudioSrc = null;
 let _audioCtx = null;
+let _previewEndTimer = null;
 
 async function playReviewSample(id, btn) {
   // Si ya estamos reproduciendo este ID, detener
@@ -1429,37 +1441,49 @@ async function playReviewSample(id, btn) {
     const result = await window.pywebview.api.play_sample(id);
     if (!result.ok) { log('Error reproduciendo: ' + (result.error || '?'), 'err'); return; }
 
-    // Decodificar WAV base64 y reproducir vía Web Audio API
-    // (evita PortAudio y el routing incorrecto por virtual cables)
-    const binary = atob(result.audio_b64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-
-    if (!_audioCtx || _audioCtx.state === 'closed') _audioCtx = new AudioContext({sampleRate: 48000});
-    if (_audioCtx.state === 'suspended') await _audioCtx.resume();
-
-    const audioBuffer = await _audioCtx.decodeAudioData(bytes.buffer);
-    const source = _audioCtx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(_audioCtx.destination);
-    _activeAudioSrc = source;
-
     _playingId = id;
     if (btn) { btn.textContent = '◼ DETENER'; btn.classList.add('btn-green'); }
 
-    source.onended = () => {
-      if (_playingId === id) {
-        _playingId = null;
-        if (btn) { btn.textContent = '▶ ESCUCHAR'; btn.classList.remove('btn-green'); }
+    if (result.mode === 'stream') {
+      // Audio inyectado en el stream de PortAudio → mismo dispositivo que el juego
+      clearTimeout(_previewEndTimer);
+      _previewEndTimer = setTimeout(() => {
+        if (_playingId === id) {
+          _playingId = null;
+          if (btn) { btn.textContent = '▶ ESCUCHAR'; btn.classList.remove('btn-green'); }
+        }
+      }, (result.duration_ms || 5000) + 600);
+    } else {
+      // Fallback Web Audio API (motor parado)
+      const binary = atob(result.audio_b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const sr = result.sample_rate || 48000;
+      if (!_audioCtx || _audioCtx.state === 'closed' || _audioCtx.sampleRate !== sr) {
+        _audioCtx = new AudioContext({sampleRate: sr});
       }
-    };
-    source.start(0);
+      if (_audioCtx.state === 'suspended') await _audioCtx.resume();
+      const audioBuffer = await _audioCtx.decodeAudioData(bytes.buffer);
+      const source = _audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(_audioCtx.destination);
+      _activeAudioSrc = source;
+      source.onended = () => {
+        if (_playingId === id) {
+          _playingId = null;
+          if (btn) { btn.textContent = '▶ ESCUCHAR'; btn.classList.remove('btn-green'); }
+        }
+      };
+      source.start(0);
+    }
   } catch(e) {
     log('Error reproduciendo: ' + e, 'err');
   }
 }
 
 async function stopPlayback() {
+  clearTimeout(_previewEndTimer);
+  _previewEndTimer = null;
   _playingId = null;
   if (_activeAudioSrc) { try { _activeAudioSrc.stop(); } catch(e) {} _activeAudioSrc = null; }
   try { await window.pywebview.api.stop_playback(); } catch(e) {}

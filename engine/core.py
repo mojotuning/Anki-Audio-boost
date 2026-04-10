@@ -31,12 +31,12 @@ class AudioEngine(FeaturesMixin, FiltersMixin, MLMixin, ReviewMixin, StreamMixin
 
         # ── Ganancias por banda (lineal) ──────────────────────────────────
         self.gains = {
-            "enemy_footsteps": 1.6,   # +4 dB
-            "own_footsteps":   0.1,   # −20 dB
-            "enemy_gunshots":  1.4,   # +3 dB
-            "own_gunshots":    0.1,   # −20 dB
-            "airstrike_vol":   0.15,  # −16 dB
-            "airstrikes":      1.4,   # +3 dB
+            "enemy_footsteps": 1.585,   # +4 dB
+            "own_footsteps":   0.398,   # −8 dB  (era −20 dB: eliminaba el cuerpo del audio)
+            "enemy_gunshots":  1.585,   # +4 dB
+            "own_gunshots":    0.398,   # −8 dB  (era −20 dB)
+            "airstrike_vol":   0.398,   # −8 dB  (era −16 dB)
+            "airstrikes":      1.259,   # +2 dB  (era +3 dB: reducir acumulación de sub)
         }
 
         # ── Buffers ───────────────────────────────────────────────────────
@@ -82,6 +82,11 @@ class AudioEngine(FeaturesMixin, FiltersMixin, MLMixin, ReviewMixin, StreamMixin
         self._limiter_env     = 1.0
         self._limiter_attack  = 0.85  # convergencia rápida (≈1 bloque)
         self._limiter_release = 0.05  # suelta gradual   (≈20 bloques)
+
+        # ── Smooth EQ: estado de ganancia actual por banda (dB) ──────────
+        # Cada bloque se interpola hacia el target de la predicción actual.
+        # Elimina los clicks causados por cambios de clase abruptos.
+        self._eq_smooth = {'low_db': 0.0, 'mid_db': 0.0, 'sub_db': 0.0}
 
         # ── Callbacks para la UI ──────────────────────────────────────────
         self.on_level_update      = None

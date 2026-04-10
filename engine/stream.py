@@ -17,15 +17,54 @@ _PRED_PUSH_INTERVAL = 0.40  # segundos — cambio de clase siempre es inmediato
 
 class StreamMixin:
 
+    def _mix_preview_block(self, processed: np.ndarray) -> np.ndarray:
+        """Mezcla el siguiente bloque de preview en `processed`.
+        - Si la cola tiene datos: suma el bloque y lo clampea a ±0.98.
+        - Si la cola se vacía: activa _preview_ended_flag (señal para hilo ML).
+        NUNCA llama on_status_update directamente — ese callback puede bloquear
+        si pywebview está esperando el WebView2 message pump, causando underrun.
+        Thread-safe: deque.popleft() es atómico bajo el GIL de CPython."""
+        if not self._preview_queue:
+            if self._preview_active:
+                self._preview_active    = False
+                self._preview_ended_flag = True   # el _analysis_worker lo consume
+            return processed
+        try:
+            pv     = self._preview_queue.popleft()
+            out_ch = processed.shape[1] if processed.ndim > 1 else 1
+            pv_ch  = pv.shape[1]        if pv.ndim  > 1 else 1
+            if pv_ch < out_ch:
+                pv = np.tile(pv, (1, -(-out_ch // pv_ch)))[:, :out_ch]
+            elif pv_ch > out_ch:
+                pv = pv[:, :out_ch]
+            n      = min(len(processed), len(pv))
+            result = processed.copy()
+            result[:n] = np.clip(result[:n] + pv[:n], -0.98, 0.98)
+            return result.astype(np.float32)
+        except Exception:
+            return processed
+
     def audio_callback(self, indata, outdata, frames, time_info, status):
         """Callback del stream de audio — DEBE ser ultrarrápido, sin cálculos pesados."""
         try:
             audio = indata.copy()
             # Durante grabación, pasar audio limpio sin EQ (bypass completo)
             if self.training_mode:
-                processed = audio.copy().astype(np.float32)
+                processed = audio.astype(np.float32)
             else:
                 processed = self.process_audio(audio, self.effective_prediction)
+            # Mezclar preview de revisión si está activo (mismo dispositivo que el stream)
+            processed = self._mix_preview_block(processed)
+
+            # Ajuste de canales: si processed no coincide con outdata, recortar o rellenar.
+            # Sin este guard, outdata[:] = processed lanza ValueError si in_ch != out_ch,
+            # la excepción se captura en silencio y outdata queda sin inicializar → basura → static.
+            if processed.ndim == 2:
+                out_ch = outdata.shape[1] if outdata.ndim > 1 else 1
+                if processed.shape[1] > out_ch:
+                    processed = processed[:, :out_ch]
+                elif processed.shape[1] < out_ch:
+                    processed = np.pad(processed, ((0, 0), (0, out_ch - processed.shape[1])))
             outdata[:] = processed
 
             # Nivel RMS para el visualizador (operación mínima)
@@ -53,6 +92,13 @@ class StreamMixin:
         prev_pred  = "unknown"
 
         while self.running:
+            # Consumir flag de fin de preview desde este hilo (no-RT) para evitar
+            # que evaluate_js bloquee el callback de PortAudio.
+            if getattr(self, '_preview_ended_flag', False):
+                self._preview_ended_flag = False
+                if self.on_status_update:
+                    self.on_status_update('__preview_ended__')
+
             try:
                 audio = self._analysis_queue.get(timeout=0.2)
             except queue.Empty:
@@ -104,12 +150,16 @@ class StreamMixin:
                     self.effective_prediction = voted_pred
 
                 # ── Estadísticas de sesión ────────────────────────────────────────
+                # Confianza media con algoritmo de Welford (O(1) por muestra, sin lista):
+                #   _conf_n: número de muestras; _conf_mean: media acumulada
                 stats = self._session_stats
                 stats['blocks_processed'] += 1
                 eff = self.effective_prediction
                 stats['class_counts'][eff] = stats['class_counts'].get(eff, 0) + 1
-                if voted_conf > 0 and len(stats['confidences']) < 50000:
-                    stats['confidences'].append(voted_conf)
+                if voted_conf > 0:
+                    n = stats['_conf_n'] + 1
+                    stats['_conf_mean'] += (voted_conf - stats['_conf_mean']) / n
+                    stats['_conf_n']     = n
 
             except Exception:
                 continue
@@ -143,7 +193,8 @@ class StreamMixin:
             'start_time':       _time.time(),
             'blocks_processed': 0,
             'class_counts':     {},
-            'confidences':      [],
+            '_conf_n':          0,      # contador Welford
+            '_conf_mean':       0.0,    # media de confianza acumulada (Welford)
         }
 
         # Hilo de análisis ML (separado del callback de audio)
@@ -176,26 +227,39 @@ class StreamMixin:
 
         # ── Helper: callbacks para streams separados ────────────────────────
         def _make_separate_callbacks(i_ch, o_ch):
-            out_buf = queue.Queue(maxsize=32)
+            # out_buf es un buffer pequeño entre los dos streams (relojes independientes).
+            # Se usa un deque mutable como contenedor del último bloque procesado para
+            # que _out_cb siempre tenga algo que reproducir en caso de underrun.
+            # Esto elimina los clicks periódicos causados por outdata[:] = 0 cuando
+            # el reloj de salida adelanta al de entrada (deriva de relojes ≈ 200 ppm).
+            out_buf   = queue.Queue(maxsize=4)   # pequeño → menos latencia acumulada
+            _last_blk = [np.zeros((self.block_size, o_ch), dtype=np.float32)]
 
             def _in_cb(indata, frames, time_info, status):
                 try:
                     audio = indata.copy()
                     # Durante grabación, pasar audio limpio sin EQ (bypass completo)
                     if self.training_mode:
-                        processed = audio.copy().astype(np.float32)
+                        processed = audio.astype(np.float32)
                     else:
                         processed = self.process_audio(audio, self.effective_prediction)
-                    if processed.shape[1] != o_ch:
+                    if processed.ndim == 2 and processed.shape[1] != o_ch:
                         if processed.shape[1] > o_ch:
                             processed = processed[:, :o_ch]
                         else:
                             processed = np.pad(
                                 processed, ((0, 0), (0, o_ch - processed.shape[1])))
+                    # Mezclar preview de revisión (mismo dispositivo que el stream)
+                    processed = self._mix_preview_block(processed)
+                    _last_blk[0] = processed          # guardar último bloque válido
                     try:
                         out_buf.put_nowait(processed)
                     except queue.Full:
-                        pass
+                        try:
+                            out_buf.get_nowait()       # descartar el más antiguo
+                            out_buf.put_nowait(processed)
+                        except Exception:
+                            pass
                     self._audio_ring.append(audio)
                     if self.on_level_update:
                         self.on_level_update(float(np.sqrt(np.mean(audio ** 2))))
@@ -210,7 +274,10 @@ class StreamMixin:
                 try:
                     outdata[:] = out_buf.get_nowait()
                 except queue.Empty:
-                    outdata[:] = 0
+                    # Repetir el último bloque válido en lugar de ceros.
+                    # Ceros → transición abrupta audio→silencio→audio = click.
+                    # Repetir el bloque anterior = continuidad sin artefactos.
+                    outdata[:] = _last_blk[0][:len(outdata)]
 
             return _in_cb, _out_cb
 
@@ -233,6 +300,7 @@ class StreamMixin:
                         latency=lat,
                     )
                     self.stream.start()
+                    self._stream_samplerate = sr
                     if self.on_status_update:
                         self.on_status_update(
                             f"🎮 Audio engine activo  [{in_ch}ch → {out_ch}ch]"
@@ -260,6 +328,7 @@ class StreamMixin:
             self._in_stream.start()
             self._out_stream.start()
             self.stream = None
+            self._stream_samplerate = best_sr
             if self.on_status_update:
                 self.on_status_update(
                     f"🎮 Audio engine activo  [{in_ch}ch → {out_ch}ch]  // modo: streams separados")

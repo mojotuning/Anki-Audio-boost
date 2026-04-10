@@ -90,8 +90,8 @@ class AudioEngine(FeaturesMixin, FiltersMixin, MLMixin, ReviewMixin, StreamMixin
         self._last_pred_push      = 0.0   # throttle para on_prediction_update
 
         # ── Audio ring buffer para etiquetado retroactivo ─────────────────
-        # 3 segundos: 3 * 48000 / 1024 ≈ 141 bloques → maxlen=150
-        self._audio_ring: deque = deque(maxlen=150)
+        # 35 segundos: 35 * 48000 / 1024 ≈ 1646 bloques → maxlen=1650
+        self._audio_ring: deque = deque(maxlen=1650)
 
         # ── Reducción de ruido ────────────────────────────────────────────
         self.noise_config = {
@@ -109,6 +109,17 @@ class AudioEngine(FeaturesMixin, FiltersMixin, MLMixin, ReviewMixin, StreamMixin
 
         # ── Bypass toggle (pasa audio sin procesar) ──────────────────────
         self.bypass = False
+
+        # ── Preview de revisión (inyección en el stream de salida) ───────
+        # Bloquecitos float32 pre-calculados listos para mezclar en outdata.
+        # Asignación atómica de referencia (GIL): thread-safe entre callback
+        # de PortAudio y el hilo de la API de pywebview.
+        self._preview_queue     = deque()   # deque de (BLOCK_SIZE, ch) float32
+        self._preview_active    = False     # True mientras hay cola pendiente
+        self._stream_samplerate = 48000     # SR real del stream al arrancar
+        # Flag para señalizar al hilo ML que el preview ha terminado.
+        # NO se llama on_status_update desde el callback RT (bloquearía PortAudio).
+        self._preview_ended_flag = False
 
         # ── Estadísticas de sesión ─────────────────────────────────────────
         self._session_stats = {

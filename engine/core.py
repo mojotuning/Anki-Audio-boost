@@ -45,7 +45,7 @@ class AudioEngine(FeaturesMixin, FiltersMixin, MLMixin, ReviewMixin, StreamMixin
         self.training_samples = []
 
         # Cola para análisis ML en hilo separado (no bloquear callback)
-        self._analysis_queue  = queue.Queue(maxsize=8)
+        self._analysis_queue  = queue.Queue(maxsize=64)
         self._analysis_thread = None
 
         # ── Estado ML ─────────────────────────────────────────────────────

@@ -84,38 +84,65 @@ class ReviewMixin:
         return result
 
     def play_sample(self, sample_id: int) -> dict:
-        """Codifica el chunk como WAV base64 para reproducción en el navegador.
-        No usa PortAudio (sd.play) para evitar conflictos con el stream principal
-        y el routing incorrecto por virtual cables."""
+        """Reproduce el chunk de revisión.
+
+        Ruta primaria (motor en marcha): inyecta los bloques PCM en el stream
+        de PortAudio que ya está corriendo. El audio sale por el MISMO
+        dispositivo de salida que el juego — mismo SR, misma cadena, idéntico
+        a lo que escuchará el modelo en producción.
+
+        Ruta de respaldo (motor parado): codifica como WAV base64 y deja que
+        el navegador lo reproduzca vía Web Audio API.
+        """
+        from collections import deque as _deque
         with self._review_lock:
             entry = self._review_store.get(int(sample_id))
         if not entry:
             return {'ok': False, 'error': 'sample not found'}
         try:
-            import io
-            import base64
-            from scipy.io import wavfile
-
             audio_out = entry['audio'].astype(np.float32)
-            # Normalizar para que sea audible (game audio suele estar a -18...-24 dBFS)
-            # Sin mezcla de canales — se envía estéreo completo tal como fue capturado.
+            # Normalizar pico para que sea audible
             peak = float(np.max(np.abs(audio_out)))
             if peak > 1e-4:
                 audio_out = audio_out * (0.8 / peak)
 
+            sr          = getattr(self, '_stream_samplerate', SAMPLE_RATE)
+            n_samples   = len(audio_out)
+            duration_ms = int(n_samples / sr * 1000)
+            n_ch        = audio_out.shape[1] if audio_out.ndim > 1 else 1
+
+            if getattr(self, 'running', False):
+                # ── Inyección en el stream de PortAudio ────────────────────────
+                bs = self.block_size
+                blocks = _deque()
+                for i in range(0, n_samples, bs):
+                    blk = audio_out[i:i + bs]
+                    if len(blk) < bs:           # último bloque: rellenar con ceros
+                        pad = np.zeros((bs - len(blk), n_ch), dtype=np.float32)
+                        blk = np.vstack([blk, pad]) if blk.ndim > 1 else np.concatenate([blk.reshape(-1, 1), pad], axis=0)
+                    blocks.append(blk.astype(np.float32))
+                # Asignación atómica de referencia — thread-safe bajo el GIL
+                self._preview_queue  = blocks
+                self._preview_active = True
+                return {'ok': True, 'mode': 'stream', 'duration_ms': duration_ms}
+
+            # ── Respaldo: Web Audio API (motor parado) ───────────────────────
+            import io
+            import base64
+            from scipy.io import wavfile
             buf = io.BytesIO()
-            wavfile.write(buf, SAMPLE_RATE, audio_out)
+            wavfile.write(buf, sr, audio_out)
             audio_b64 = base64.b64encode(buf.getvalue()).decode('ascii')
-            return {'ok': True, 'audio_b64': audio_b64}
+            return {'ok': True, 'mode': 'webaudio',
+                    'audio_b64': audio_b64, 'sample_rate': sr, 'duration_ms': duration_ms}
         except Exception as e:
             return {'ok': False, 'error': str(e)}
 
     def stop_playback(self) -> dict:
-        if _SD_OK:
-            try:
-                _sd.stop()
-            except Exception:
-                pass
+        """Detiene el preview: vacía la cola de inyección (asignación atómica)."""
+        from collections import deque as _deque
+        self._preview_queue  = _deque()   # atómico bajo el GIL
+        self._preview_active = False
         return {'ok': True}
 
     def confirm_sample(self, sample_id: int) -> dict:

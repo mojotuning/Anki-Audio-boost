@@ -3,14 +3,17 @@ Machine learning: entrenamiento, predicción, persistencia y gestión de muestra
 """
 import json
 import pickle
+import threading
 import time
 
 import numpy as np
 from sklearn.ensemble import GradientBoostingClassifier
 
-from .config import MODEL_FILE, SCALER_FILE, SAMPLES_FILE, DATA_DIR, FEATURE_DIM
+from .config import MODEL_FILE, SCALER_FILE, SAMPLES_FILE, DATA_DIR, FEATURE_DIM, PRED_WINDOW_BLOCKS
 
-_PROFILES_FILE = DATA_DIR / "profiles.json"
+_PROFILES_FILE  = DATA_DIR / "profiles.json"
+_MODEL_META     = DATA_DIR / "model_meta.json"
+_SAVE_INTERVAL  = 5.0   # segundos entre escrituras del JSON de muestras
 
 
 class MLMixin:
@@ -26,14 +29,13 @@ class MLMixin:
     def get_session_stats(self) -> dict:
         """Devuelve un resumen de la sesión actual para mostrar al detener el engine."""
         import time as _t
-        stats = self._session_stats
-        start = stats.get('start_time')
+        stats     = self._session_stats
+        start     = stats.get('start_time')
         duration_s = (_t.time() - start) if start else 0
-        blocks = stats.get('blocks_processed', 0)
-        confs = stats.get('confidences', [])
-        mean_conf = (sum(confs) / len(confs)) if confs else 0.0
+        blocks    = stats.get('blocks_processed', 0)
+        mean_conf = stats.get('_conf_mean', 0.0)   # media Welford: O(1), sin iterar lista
         total_active = sum(v for k, v in stats.get('class_counts', {}).items() if k != 'unknown')
-        coverage = (total_active / blocks * 100) if blocks > 0 else 0.0
+        coverage  = (total_active / blocks * 100) if blocks > 0 else 0.0
         return {
             'duration_s':        round(duration_s, 1),
             'blocks_processed':  blocks,
@@ -44,18 +46,18 @@ class MLMixin:
 
     def label_recent(self, label: str) -> int:
         """
-        Etiqueta los últimos ~3 s de audio capturado (ring buffer) como muestras de clase label.
-        Devuelve el número de muestras añadidas.
+        Etiqueta los últimos ~3 s de audio capturado (ring buffer) como una única
+        muestra de clase label. Extrae features sobre el audio concatenado completo
+        en lugar de hacerlo bloque a bloque (1650 llamadas a librosa → 1 llamada).
         """
         if not self._audio_ring:
             return 0
-        added = 0
-        for audio_block in list(self._audio_ring):
-            features = self.extract_features(audio_block)
-            if features is not None:
-                self.add_training_sample(features, label)
-                added += 1
-        return added
+        audio = np.concatenate(list(self._audio_ring), axis=0)
+        features = self.extract_features(audio)
+        if features is None:
+            return 0
+        self.add_training_sample(features, label)
+        return 1
 
     # ─── Perfiles de ganancia ─────────────────────────────────────────────────
 
@@ -129,34 +131,57 @@ class MLMixin:
     # ─── Muestras y entrenamiento ─────────────────────────────────────────────
 
     def add_training_sample(self, features, label):
-        """Agrega una muestra de entrenamiento."""
+        """Agrega una muestra de entrenamiento.
+
+        Guarda en disco máximo una vez cada _SAVE_INTERVAL segundos para no
+        reescribir el JSON completo con cada muestra.
+        Reentrena el modelo en un hilo daemon para no bloquear la UI.
+        """
         self.training_samples.append({
             "features":  features.tolist(),
             "label":     label,
             "timestamp": time.time()
         })
-        self._save_samples()
+
+        now = time.monotonic()
+        if now - getattr(self, '_last_save_time', 0.0) >= _SAVE_INTERVAL:
+            self._save_samples()
+            self._last_save_time = now
 
         if len(self.training_samples) >= 10:
-            self.train_model()
+            self._train_async()
+
+    def _train_async(self):
+        """Lanza train_model() en un hilo daemon para no bloquear la UI o la API.
+        Solo arranca un hilo si no hay otro en curso.
+        """
+        if getattr(self, '_training_thread', None) and self._training_thread.is_alive():
+            return   # entrenamiento ya en curso — la nueva muestra se incluirá al terminar
+        self._training_thread = threading.Thread(
+            target=self.train_model, daemon=True, name='AudioEngine-train')
+        self._training_thread.start()
 
     def train_model(self):
-        """Entrena el clasificador con las muestras acumuladas."""
-        if len(self.training_samples) < 6:
+        """Entrena el clasificador con las muestras acumuladas.
+        Hilo-seguro: hace una snapshot local de training_samples antes de fit().
+        """
+        samples = list(self.training_samples)   # snapshot — no bloquea el callback
+        if len(samples) < 6:
             return False
 
-        X = np.array([s["features"] for s in self.training_samples])
-        y = np.array([s["label"]    for s in self.training_samples])
+        X = np.array([s["features"] for s in samples])
+        y = np.array([s["label"]    for s in samples])
 
-        unique = np.unique(y)
-        if len(unique) < 2:
+        if len(np.unique(y)) < 2:
             return False
 
         try:
-            self.scaler.fit(X)
-            X_scaled = self.scaler.transform(X)
+            from sklearn.preprocessing import StandardScaler
+            scaler = StandardScaler()
+            scaler.fit(X)
+            X_scaled = scaler.transform(X)
 
-            self.model = GradientBoostingClassifier(
+            model = GradientBoostingClassifier(
                 n_estimators=200,
                 learning_rate=0.08,
                 max_depth=4,
@@ -164,23 +189,31 @@ class MLMixin:
                 min_samples_leaf=3,
                 random_state=42,
             )
-            self.model.fit(X_scaled, y)
-            self.model_trained = True
+            model.fit(X_scaled, y)
 
-            # Precisión por clase (sobre los datos de entrenamiento — indicativo)
+            # Precisión por clase (indicativa — mismos datos de train)
             try:
                 from sklearn.metrics import classification_report
-                y_pred = self.model.predict(X_scaled)
+                y_pred = model.predict(X_scaled)
                 report = classification_report(y, y_pred, output_dict=True, zero_division=0)
-                self._accuracy_report = report
             except Exception:
-                self._accuracy_report = {}
+                report = {}
 
+            # Publicar resultado atómicamente — una sola asignación referencia bajo el GIL
+            self.scaler          = scaler
+            self.model           = model
+            self.model_trained   = True
+            self._accuracy_report = report
+            # Cachear mean/scale como arrays contiguos para transform manual en predict()
+            # Evita el overhead de validación de StandardScaler (~15-25µs por llamada)
+            self._scaler_mean  = scaler.mean_.astype(np.float32)
+            self._scaler_scale = scaler.scale_.astype(np.float32)
             self._save_model()
+            self._save_samples()           # flush final garantizado tras entrenar
+            self._last_save_time = time.monotonic()
 
             if self.on_status_update:
-                self.on_status_update(f"✅ Modelo entrenado con {len(self.training_samples)} muestras")
-
+                self.on_status_update(f"✅ Modelo entrenado con {len(samples)} muestras")
             return True
         except Exception as e:
             if self.on_status_update:
@@ -188,15 +221,24 @@ class MLMixin:
             return False
 
     def predict(self, features):
-        """Predice la clase del sonido con el modelo entrenado."""
+        """Predice la clase del sonido con el modelo entrenado.
+        Usa transform manual (resta mean / divide scale) en vez de
+        StandardScaler.transform() para evitar el overhead de validación
+        de sklearn en cada predicción (llamada cada ~1s desde el hilo ML).
+        """
         if not self.model_trained or self.model is None:
             return "unknown", 0.0
 
         try:
-            X        = features.reshape(1, -1)
-            X_scaled = self.scaler.transform(X)
-            pred     = self.model.predict(X_scaled)[0]
-            proba    = self.model.predict_proba(X_scaled)[0]
+            mean  = getattr(self, '_scaler_mean',  None)
+            scale = getattr(self, '_scaler_scale', None)
+            if mean is None or scale is None:
+                # Fallback: scaler todavía no cacheado (carga desde disco)
+                X_scaled = self.scaler.transform(features.reshape(1, -1))
+            else:
+                X_scaled = ((features - mean) / scale).reshape(1, -1)
+            pred  = self.model.predict(X_scaled)[0]
+            proba = self.model.predict_proba(X_scaled)[0]
             return pred, float(np.max(proba))
         except Exception:
             return "unknown", 0.0
@@ -263,17 +305,63 @@ class MLMixin:
             pickle.dump(self.model, f)
         with open(SCALER_FILE, 'wb') as f:
             pickle.dump(self.scaler, f)
+        # Guardar metadatos: tamaño de ventana usado en entrenamiento.
+        # Si cambia PRED_WINDOW_BLOCKS, el modelo anterior es inválido.
+        try:
+            with open(_MODEL_META, 'w') as f:
+                json.dump({'pred_window_blocks': PRED_WINDOW_BLOCKS}, f)
+        except Exception:
+            pass
 
     def _load_model(self):
         try:
             if MODEL_FILE.exists() and SCALER_FILE.exists():
+                # Verificar compatibilidad: si el modelo se entrenó con otra ventana,
+                # los features tienen distribución diferente → predicciones basura.
+                if _MODEL_META.exists():
+                    with open(_MODEL_META, 'r') as f:
+                        meta = json.load(f)
+                    if meta.get('pred_window_blocks') != PRED_WINDOW_BLOCKS:
+                        self._invalidate_old_model(
+                            meta.get('pred_window_blocks'), PRED_WINDOW_BLOCKS)
+                        return
+                else:
+                    # No hay meta → modelo de versión anterior. Invalidar.
+                    self._invalidate_old_model(None, PRED_WINDOW_BLOCKS)
+                    return
+
                 with open(MODEL_FILE, 'rb') as f:
                     self.model = pickle.load(f)
                 with open(SCALER_FILE, 'rb') as f:
                     self.scaler = pickle.load(f)
                 self.model_trained = True
+                # Reconstruir caché de normalización para predict() rápido
+                if hasattr(self.scaler, 'mean_') and hasattr(self.scaler, 'scale_'):
+                    self._scaler_mean  = self.scaler.mean_.astype(np.float32)
+                    self._scaler_scale = self.scaler.scale_.astype(np.float32)
         except Exception:
             pass
+
+    def _invalidate_old_model(self, old_window, new_window):
+        """Borra modelo y muestras entrenados con ventana incompatible."""
+        for f in (MODEL_FILE, SCALER_FILE, _MODEL_META):
+            try:
+                if f.exists():
+                    f.unlink()
+            except Exception:
+                pass
+        # Las muestras también son inválidas: sus features fueron extraídos
+        # de audio de tamaño diferente → distribución incompatible.
+        self.training_samples = []
+        self._save_samples()
+        self.model         = None
+        self.model_trained = False
+        if getattr(self, 'on_status_update', None):
+            old_ms = int(old_window * 1024 / 48000 * 1000) if old_window else '?'
+            new_ms = int(new_window * 1024 / 48000 * 1000)
+            self.on_status_update(
+                f'⚠️ Modelo anterior incompatible (ventana {old_ms}ms → {new_ms}ms). '
+                f'Muestras borradas. Recoge nuevas muestras para entrenar.')
 
     def _save_samples(self):
         with open(SAMPLES_FILE, 'w') as f:

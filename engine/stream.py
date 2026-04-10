@@ -188,6 +188,10 @@ class StreamMixin:
         self._pred_accum.clear()
         self._train_accum.clear()
 
+        # Resetear interpolación EQ suave para no heredar estado de sesión anterior
+        self._eq_smooth = {'low_db': 0.0, 'mid_db': 0.0, 'sub_db': 0.0}
+        self._limiter_env = 1.0
+
         # Reiniciar estadísticas de sesión
         self._session_stats = {
             'start_time':       _time.time(),

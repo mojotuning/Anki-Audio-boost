@@ -197,10 +197,13 @@ class FiltersMixin:
             processed = self.apply_eq_band(processed, 80, 600, db('enemy_footsteps'))
             processed = self.apply_eq_band(processed, 600, 4000, db('enemy_gunshots'))
 
-        else:  # enemy_feet, enemy, enemy_guns, unknown → boost completo
+        elif prediction in ('enemy_feet', 'enemy', 'enemy_guns'):
             processed = self.apply_eq_band(processed, 80, 600, db('enemy_footsteps'))
             processed = self.apply_eq_band(processed, 600, 4000, db('enemy_gunshots'))
             processed = self.apply_eq_band(processed, 40, 200, db('airstrikes'))
+
+        else:  # unknown / sin modelo → passthrough, sin EQ
+            return audio_chunk.astype(np.float32)
 
         # ── Limiter suave con attack/release ────────────────────────────────
         # Attack: instantáneo (el gain baja de golpe al target del bloque).

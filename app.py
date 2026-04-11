@@ -23,7 +23,7 @@ import webview
 # ─── Ventana global ──────────────────────────────────────────────────────────
 _window = None
 
-VERSION = '3.0.0'
+VERSION = '3.1.1'
 
 
 def _push_js(call: str):
@@ -155,6 +155,188 @@ class Api:
         import webbrowser
         webbrowser.open('https://sourceforge.net/projects/equalizerapo/')
         return {'ok': True}
+
+    # ─── Setup Wizard: instalar dependencias ──────────────────────────────
+
+    def get_setup_status(self):
+        """Retorna estado de instalación de cada dependencia (en orden)."""
+        sw = engine.detect_software()
+        leq_on = self._is_leq_enabled()
+        return {
+            'vb_cable':    {'installed': sw['vb_cable'],    'name': 'VB-Audio Hi-Fi Cable', 'desc': 'Dispositivo virtual 7.1 surround', 'leq': leq_on},
+            'voicemeeter': {'installed': sw['voicemeeter'], 'name': 'Voicemeeter',          'desc': 'Mixer / router de audio'},
+            'apo':         {'installed': sw['apo'],         'name': 'EqualizerAPO',         'desc': 'Motor de procesamiento de audio'},
+            'hesuvi':      {'installed': sw['hesuvi'],      'name': 'HeSuVi',               'desc': '7.1 surround → binaural para audífonos'},
+            'reaplugs':    {'installed': sw['reaplugs'],    'name': 'ReaPlugs',             'desc': 'VST plugins (limiter brickwall)'},
+        }
+
+    def install_dependency(self, dep_id):
+        """Descarga e instala una dependencia. Retorna progreso."""
+
+        urls = {
+            'vb_cable':    'https://download.vb-audio.com/Download_CABLE/HiFiCableAudioDriver64.zip',
+            'voicemeeter': 'https://download.vb-audio.com/Download_CABLE/VoicemeeterSetup.exe',
+            'apo':         'https://sourceforge.net/projects/equalizerapo/files/latest/download',
+            'hesuvi':      'https://sourceforge.net/projects/hesuvi/files/latest/download',
+            'reaplugs':    'https://www.reaper.fm/reaplugs/reaplugs239_x64-install.exe',
+        }
+
+        if dep_id not in urls:
+            return {'ok': False, 'error': f'Dependencia "{dep_id}" no reconocida'}
+
+        url = urls[dep_id]
+
+        try:
+            _push_js(f"setupProgress('{dep_id}', 'downloading')")
+
+            ctx = _ssl.create_default_context()
+            req = _urllib_request.Request(url, headers={'User-Agent': 'WarzoneAudioEnhancer/3.1'})
+            resp = _urllib_request.urlopen(req, timeout=300, context=ctx)
+
+            # Determine file extension from response or URL
+            content_disp = resp.headers.get('Content-Disposition', '')
+            if '.zip' in url or '.zip' in content_disp:
+                ext = '.zip'
+            else:
+                ext = '.exe'
+
+            tmp = _tempfile.mktemp(suffix=ext, prefix=f'wae_{dep_id}_')
+            with open(tmp, 'wb') as f:
+                total = 0
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    total += len(chunk)
+
+            _push_js(f"setupProgress('{dep_id}', 'installing')")
+
+            if ext == '.zip':
+                # VB-Cable comes as zip — extract and run setup
+                import zipfile
+                extract_dir = _tempfile.mkdtemp(prefix=f'wae_{dep_id}_')
+                with zipfile.ZipFile(tmp, 'r') as z:
+                    z.extractall(extract_dir)
+                os.remove(tmp)
+                # Find the setup exe inside
+                setup_exe = None
+                for root, dirs, files in os.walk(extract_dir):
+                    for fn in files:
+                        if fn.lower().startswith('setup') and fn.lower().endswith('.exe'):
+                            setup_exe = os.path.join(root, fn)
+                            break
+                    if not setup_exe:
+                        for fn in files:
+                            if fn.lower().endswith('.exe') and ('setup' in fn.lower() or 'install' in fn.lower()):
+                                setup_exe = os.path.join(root, fn)
+                                break
+                    if setup_exe:
+                        break
+
+                if setup_exe:
+                    result = _subprocess.run([setup_exe], timeout=300)
+                    ok = result.returncode in (0, 1638)
+                else:
+                    _subprocess.Popen(['explorer', extract_dir])
+                    ok = True
+            else:
+                result = _subprocess.run([tmp], timeout=600)
+                ok = result.returncode in (0, 1638, 3010)
+                try:
+                    os.remove(tmp)
+                except Exception:
+                    pass
+
+            if ok:
+                engine.apo_path = engine._find_apo()
+                engine.config_dir = engine.apo_path / "config" if engine.apo_path else None
+                _push_js(f"setupProgress('{dep_id}', 'done')")
+                return {'ok': True}
+            else:
+                _push_js(f"setupProgress('{dep_id}', 'error')")
+                return {'ok': False, 'error': f'Installer exited with code {result.returncode}'}
+
+        except Exception as e:
+            _push_js(f"setupProgress('{dep_id}', 'error')")
+            return {'ok': False, 'error': str(e)}
+
+    def open_dependency_page(self, dep_id):
+        """Abre la página de descarga manual de una dependencia."""
+        import webbrowser
+        pages = {
+            'vb_cable':    'https://vb-audio.com/Cable/',
+            'voicemeeter': 'https://vb-audio.com/Voicemeeter/',
+            'apo':         'https://sourceforge.net/projects/equalizerapo/',
+            'hesuvi':      'https://sourceforge.net/projects/hesuvi/',
+            'reaplugs':    'https://www.reaper.fm/reaplugs/',
+        }
+        if dep_id in pages:
+            webbrowser.open(pages[dep_id])
+            return {'ok': True}
+        return {'ok': False}
+
+    # ─── Loudness Equalization (LEQ) toggle ───────────────────────────────
+
+    def _find_hifi_cable_device_key(self):
+        """Busca la clave de registro del dispositivo Hi-Fi Cable."""
+        import winreg
+        base = r"SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render"
+        try:
+            render_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, base)
+            i = 0
+            while True:
+                try:
+                    subkey_name = winreg.EnumKey(render_key, i)
+                    props_path = f"{base}\\{subkey_name}\\Properties"
+                    try:
+                        props = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, props_path)
+                        # Device friendly name is at {a45c254e-df1c-4efd-8020-67d146a850e0},2
+                        try:
+                            name, _ = winreg.QueryValueEx(props, "{a45c254e-df1c-4efd-8020-67d146a850e0},2")
+                            if name and ('hi-fi' in name.lower() or 'hifi' in name.lower()):
+                                winreg.CloseKey(props)
+                                winreg.CloseKey(render_key)
+                                return f"{base}\\{subkey_name}"
+                        except OSError:
+                            pass
+                        winreg.CloseKey(props)
+                    except OSError:
+                        pass
+                    i += 1
+                except OSError:
+                    break
+            winreg.CloseKey(render_key)
+        except OSError:
+            pass
+        return None
+
+    def _is_leq_enabled(self):
+        """Verifica si Loudness Equalization está activado en Hi-Fi Cable."""
+        import winreg
+        dev_key = self._find_hifi_cable_device_key()
+        if not dev_key:
+            return False
+        fxprops = f"{dev_key}\\FxProperties"
+        try:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, fxprops)
+            # LEQ GUID: {fc52a749-4be9-4510-896e-966ba6525980},1
+            val, _ = winreg.QueryValueEx(key, "{fc52a749-4be9-4510-896e-966ba6525980},1")
+            winreg.CloseKey(key)
+            return val == 1
+        except OSError:
+            return False
+
+    def toggle_leq(self):
+        """Activa/desactiva Loudness Equalization en Hi-Fi Cable.
+        Abre propiedades del dispositivo si no puede hacerlo por registro."""
+        try:
+            # Abrir las propiedades de sonido de Windows para que el usuario
+            # active LEQ manualmente (acceso directo más confiable)
+            _subprocess.Popen(['rundll32.exe', 'shell32.dll,Control_RunDLL', 'mmsys.cpl,,0'])
+            return {'ok': True, 'message': 'Abierto panel de sonido. Busca Hi-Fi Cable → Propiedades → Mejoras → Loudness Equalization'}
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
 
 
 # ─── Bandeja del sistema ─────────────────────────────────────────────────────

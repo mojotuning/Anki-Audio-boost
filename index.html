@@ -373,6 +373,45 @@
     .preset-grid { grid-template-columns: repeat(2, 1fr); }
     .chain-grid  { grid-template-columns: repeat(3, 1fr); }
   }
+
+  /* ─── Setup Wizard ───────────────────────────────────────────── */
+  .setup-item {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 16px 20px;
+    background: var(--bg2); border: 1px solid var(--border);
+    margin-bottom: 8px; transition: all 0.3s;
+  }
+  .setup-item.installed { border-color: var(--green3); }
+  .setup-item.installing { border-color: var(--yellow); }
+  .setup-item.error { border-color: rgba(255,34,68,0.4); }
+  .setup-status-icon {
+    width: 32px; height: 32px; display: flex; align-items: center;
+    justify-content: center; font-size: 18px; flex-shrink: 0;
+  }
+  .setup-info { flex: 1; min-width: 0; }
+  .setup-name {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px; letter-spacing: 2px; color: var(--green);
+    text-transform: uppercase;
+  }
+  .setup-desc {
+    font-size: 11px; color: var(--textdim); margin-top: 2px;
+    font-family: 'Share Tech Mono', monospace; letter-spacing: 0.5px;
+  }
+  .setup-status-text {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px; letter-spacing: 2px; color: var(--textdim);
+    margin-top: 4px; text-transform: uppercase;
+  }
+  .setup-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .setup-order {
+    font-family: 'Share Tech Mono', monospace; font-size: 10px;
+    letter-spacing: 1px; color: var(--textdim); margin-bottom: 12px;
+  }
+  @keyframes spin {
+    0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); }
+  }
+  .spinner { animation: spin 1s linear infinite; display: inline-block; }
 </style>
 </head>
 <body>
@@ -389,6 +428,9 @@
     <div class="nav-items">
       <button class="nav-item active" id="nav-home" onclick="navigate('home')">
         <span class="nav-icon">◈</span> SHAPER
+      </button>
+      <button class="nav-item" id="nav-setup" onclick="navigate('setup')">
+        <span class="nav-icon">▼</span> SETUP
       </button>
       <button class="nav-item" id="nav-settings" onclick="navigate('settings')">
         <span class="nav-icon">⚙</span> SETTINGS
@@ -491,6 +533,102 @@
 
       </div>
 
+      <!-- ═══════════════════════ SETUP PAGE ═════════════════════ -->
+      <div class="page" id="page-setup">
+
+        <div class="panel">
+          <div class="panel-title">DEPENDENCIAS</div>
+          <p class="setup-order">Instala en este orden. Cada programa se abre con su propio instalador.</p>
+
+          <div class="setup-item" id="setup-vb_cable">
+            <div class="setup-status-icon" id="setup-icon-vb_cable">❌</div>
+            <div class="setup-info">
+              <div class="setup-name">1. VB-Audio Hi-Fi Cable</div>
+              <div class="setup-desc">Crea dispositivo virtual 7.1 surround</div>
+              <div class="setup-status-text" id="setup-text-vb_cable">No instalado</div>
+            </div>
+            <div class="setup-actions">
+              <button class="btn btn-green" onclick="installDep('vb_cable')">INSTALAR</button>
+              <button class="btn btn-dim" onclick="openDepPage('vb_cable')">WEB</button>
+            </div>
+            <div class="setup-leq" id="leq-row" style="display:none; width:100%; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.05);">
+              <button class="btn btn-dim" id="btn-leq" onclick="toggleLEQ()" style="font-size:9px;">🔊 ACTIVAR LEQ (Loudness Equalization)</button>
+              <span id="leq-status" style="font-size:9px; color:var(--textdim); margin-left:8px;"></span>
+            </div>
+          </div>
+
+          <div class="setup-item" id="setup-voicemeeter">
+            <div class="setup-status-icon" id="setup-icon-voicemeeter">❌</div>
+            <div class="setup-info">
+              <div class="setup-name">2. Voicemeeter</div>
+              <div class="setup-desc">Mixer / router de audio</div>
+              <div class="setup-status-text" id="setup-text-voicemeeter">No instalado</div>
+            </div>
+            <div class="setup-actions">
+              <button class="btn btn-green" onclick="installDep('voicemeeter')">INSTALAR</button>
+              <button class="btn btn-dim" onclick="openDepPage('voicemeeter')">WEB</button>
+            </div>
+          </div>
+
+          <div class="setup-item" id="setup-apo">
+            <div class="setup-status-icon" id="setup-icon-apo">❌</div>
+            <div class="setup-info">
+              <div class="setup-name">3. EqualizerAPO</div>
+              <div class="setup-desc">Motor de procesamiento — intercepta el audio del sistema</div>
+              <div class="setup-status-text" id="setup-text-apo">No instalado</div>
+            </div>
+            <div class="setup-actions">
+              <button class="btn btn-green" onclick="installDep('apo')">INSTALAR</button>
+              <button class="btn btn-dim" onclick="openDepPage('apo')">WEB</button>
+            </div>
+          </div>
+
+          <div class="setup-item" id="setup-hesuvi">
+            <div class="setup-status-icon" id="setup-icon-hesuvi">❌</div>
+            <div class="setup-info">
+              <div class="setup-name">4. HeSuVi</div>
+              <div class="setup-desc">7.1 surround → estéreo binaural para audífonos</div>
+              <div class="setup-status-text" id="setup-text-hesuvi">No instalado</div>
+            </div>
+            <div class="setup-actions">
+              <button class="btn btn-green" onclick="installDep('hesuvi')">INSTALAR</button>
+              <button class="btn btn-dim" onclick="openDepPage('hesuvi')">WEB</button>
+            </div>
+          </div>
+
+          <div class="setup-item" id="setup-reaplugs">
+            <div class="setup-status-icon" id="setup-icon-reaplugs">❌</div>
+            <div class="setup-info">
+              <div class="setup-name">5. ReaPlugs</div>
+              <div class="setup-desc">VST plugins — limiter brickwall para proteger oídos</div>
+              <div class="setup-status-text" id="setup-text-reaplugs">No instalado</div>
+            </div>
+            <div class="setup-actions">
+              <button class="btn btn-green" onclick="installDep('reaplugs')">INSTALAR</button>
+              <button class="btn btn-dim" onclick="openDepPage('reaplugs')">WEB</button>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="panel">
+          <div class="panel-title">CADENA DE AUDIO</div>
+          <div style="font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--textdim);line-height:2.2;">
+            <span style="color:var(--green)">COD / Game</span> →
+            <span style="color:var(--yellow)">VB-Cable 7.1</span> →
+            <span style="color:var(--green)">Voicemeeter</span> →
+            <span style="color:var(--green)">EqualizerAPO</span> →
+            <span style="color:var(--yellow)">warzone_enhancer.txt</span> (nuestra app) →
+            <span style="color:var(--green)">HeSuVi</span> (7.1 → binaural) →
+            <span style="color:var(--textdim)">Audífonos</span>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-green" onclick="refreshSetup()">↻ RE-DETECTAR</button>
+          </div>
+        </div>
+
+      </div>
+
       <!-- ═══════════════════════ SETTINGS PAGE ═══════════════════ -->
       <div class="page" id="page-settings">
 
@@ -573,8 +711,9 @@ function navigate(page) {
   const nav = document.getElementById('nav-' + page);
   if (el) el.classList.add('active');
   if (nav) nav.classList.add('active');
-  const titles = { home: '◈ CHANNEL SHAPER', settings: '⚙ SETTINGS' };
+  const titles = { home: '◈ CHANNEL SHAPER', setup: '▼ SETUP', settings: '⚙ SETTINGS' };
   document.getElementById('pageTitle').textContent = titles[page] || page.toUpperCase();
+  if (page === 'setup') refreshSetup();
 }
 
 // ─── Log ────────────────────────────────────────────────────────────────────
@@ -810,9 +949,109 @@ function installAPO() {
   api('install_apo');
 }
 
+// ─── Setup Wizard ───────────────────────────────────────────────────────────
+let _setupStatus = {};
+
+async function refreshSetup() {
+  const status = await api('get_setup_status');
+  if (!status) return;
+  _setupStatus = status;
+  for (const [id, info] of Object.entries(status)) {
+    const item = document.getElementById('setup-' + id);
+    const icon = document.getElementById('setup-icon-' + id);
+    const text = document.getElementById('setup-text-' + id);
+    if (!item) continue;
+    item.classList.remove('installed', 'installing', 'error');
+    if (info.installed) {
+      item.classList.add('installed');
+      icon.textContent = '✓';
+      icon.style.color = 'var(--green)';
+      text.textContent = 'Instalado';
+      text.style.color = 'var(--green2)';
+      // Hide install button
+      const btn = item.querySelector('.btn-green:not(#btn-leq)');
+      if (btn) btn.style.display = 'none';
+    } else {
+      icon.textContent = '✗';
+      icon.style.color = 'var(--red)';
+      text.textContent = 'No instalado';
+      text.style.color = 'var(--red)';
+      const btn = item.querySelector('.btn-green:not(#btn-leq)');
+      if (btn) btn.style.display = '';
+    }
+  }
+  // LEQ row: show only when Hi-Fi Cable is installed
+  const leqRow = document.getElementById('leq-row');
+  const leqStatus = document.getElementById('leq-status');
+  if (leqRow && status.vb_cable) {
+    leqRow.style.display = status.vb_cable.installed ? 'flex' : 'none';
+    if (leqStatus) {
+      leqStatus.textContent = status.vb_cable.leq ? '✓ LEQ activo' : '';
+      leqStatus.style.color = status.vb_cable.leq ? 'var(--green)' : 'var(--textdim)';
+    }
+  }
+}
+
+async function toggleLEQ() {
+  const r = await api('toggle_leq');
+  if (r && r.message) log(r.message, 'ok');
+  else if (r && r.error) log(r.error, 'error');
+}
+
+function setupProgress(depId, phase) {
+  const item = document.getElementById('setup-' + depId);
+  const icon = document.getElementById('setup-icon-' + depId);
+  const text = document.getElementById('setup-text-' + depId);
+  if (!item) return;
+  item.classList.remove('installed', 'installing', 'error');
+  if (phase === 'downloading') {
+    item.classList.add('installing');
+    icon.innerHTML = '<span class="spinner">⟳</span>';
+    icon.style.color = 'var(--yellow)';
+    text.textContent = 'Descargando...';
+    text.style.color = 'var(--yellow)';
+  } else if (phase === 'installing') {
+    icon.innerHTML = '<span class="spinner">⟳</span>';
+    text.textContent = 'Instalando...';
+  } else if (phase === 'done') {
+    item.classList.add('installed');
+    icon.innerHTML = '✓';
+    icon.style.color = 'var(--green)';
+    text.textContent = 'Instalado';
+    text.style.color = 'var(--green2)';
+    const btn = item.querySelector('.btn-green');
+    if (btn) btn.style.display = 'none';
+    log(depId + ' instalado correctamente', 'ok');
+  } else if (phase === 'error') {
+    item.classList.add('error');
+    icon.innerHTML = '✗';
+    icon.style.color = 'var(--red)';
+    text.textContent = 'Error — intenta descarga manual';
+    text.style.color = 'var(--red)';
+  }
+}
+
+async function installDep(depId) {
+  log('Instalando ' + depId + '...', 'ok');
+  setupProgress(depId, 'downloading');
+  const r = await api('install_dependency', depId);
+  if (r && r.ok) {
+    setupProgress(depId, 'done');
+    // Refresh all after install
+    setTimeout(refreshSetup, 1000);
+  } else {
+    setupProgress(depId, 'error');
+    log('Error instalando ' + depId + ': ' + (r ? r.error : 'sin respuesta'), 'err');
+  }
+}
+
+function openDepPage(depId) {
+  api('open_dependency_page', depId);
+}
+
 // ─── Init ───────────────────────────────────────────────────────────────────
 async function init() {
-  log('Inicializando Warzone Audio Enhancer v2.0...', 'ok');
+  log('Inicializando Warzone Audio Enhancer...', 'ok');
 
   // Version
   const ver = await api('get_version');
@@ -864,6 +1103,12 @@ async function init() {
 
   if (state.enabled) {
     log('Procesamiento activo — preset: ' + state.preset, 'ok');
+  }
+
+  // Auto-navigate to Setup if critical deps missing
+  if (status && (!status.apo?.installed || !status.hesuvi?.installed || !status.reaplugs?.installed || !status.vb_cable?.installed || !status.voicemeeter?.installed)) {
+    navigate('setup');
+    log('Faltan dependencias — ve a SETUP para instalar', 'warn');
   }
 }
 

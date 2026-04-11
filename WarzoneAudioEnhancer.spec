@@ -1,15 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_data_files
-
-# Incluir todos los archivos de datos de sklearn (CSS, JS, etc.)
-sklearn_datas = collect_data_files('sklearn', includes=['**/*.css', '**/*.js', '**/*.html'])
 
 a = Analysis(
     ['app.py'],
     pathex=[],
     binaries=[],
-    datas=[('index.html', '.'), ('engine', 'engine')] + sklearn_datas,
-    hiddenimports=['sklearn.ensemble._gb', 'sklearn.ensemble._forest', 'sklearn.tree', 'pystray', 'PIL', 'certifi', 'keyboard'],
+    datas=[('index.html', '.'), ('presets.py', '.'), ('apo_engine.py', '.')],
+    hiddenimports=['pystray', 'PIL', 'certifi'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

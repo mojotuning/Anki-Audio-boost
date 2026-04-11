@@ -6,7 +6,6 @@
 <title>WARZONE AUDIO ENHANCER</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<!-- socket.io eliminado: la comunicación es nativa via pywebview -->
 <style>
   :root {
     --bg:       #050a08;
@@ -34,8 +33,8 @@
     color: var(--text);
     font-family: 'Rajdhani', sans-serif;
     font-size: 15px;
-    min-height: 100vh;
-    overflow-x: hidden;
+    overflow: hidden;
+    height: 100vh;
   }
 
   /* Scanlines overlay */
@@ -62,546 +61,11 @@
     z-index: 0;
   }
 
-  .container { max-width: 1100px; margin: 0 auto; padding: 20px; position: relative; z-index: 1; }
-
-  /* ─── Header ─────────────────────────────────────────────────── */
-  header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 16px;
-    margin-bottom: 24px;
-  }
-
-  .logo {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 11px;
-    color: var(--green);
-    letter-spacing: 3px;
-    text-transform: uppercase;
-    line-height: 1.6;
-  }
-
-  .logo .big {
-    font-size: 22px;
-    letter-spacing: 6px;
-    display: block;
-    text-shadow: var(--glow);
-  }
-
-  .status-pill {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    padding: 8px 16px;
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 11px;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-  }
-
-  .dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: var(--dim);
-    transition: background 0.3s, box-shadow 0.3s;
-  }
-  .dot.active { background: var(--green); box-shadow: var(--glow); animation: pulse 2s infinite; }
-  .dot.training { background: var(--yellow); animation: pulse 0.5s infinite; }
-
   @keyframes pulse {
     0%,100% { opacity:1; } 50% { opacity:0.4; }
   }
 
-  /* ─── Grid layout ────────────────────────────────────────────── */
-  .grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-  }
-  .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
-  .full { grid-column: 1 / -1; }
-
-  /* ─── Panel ──────────────────────────────────────────────────── */
-  .panel {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    padding: 20px;
-    position: relative;
-  }
-
-  .panel::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0;
-    width: 4px; height: 100%;
-    background: var(--green3);
-  }
-
-  .panel-title {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 3px;
-    color: var(--green);
-    text-transform: uppercase;
-    margin-bottom: 16px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .panel-title::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--border);
-  }
-
-  /* ─── Waveform visualizer ────────────────────────────────────── */
-  .waveform-wrap {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    padding: 4px;
-    margin-bottom: 16px;
-  }
-
-  canvas#waveform {
-    width: 100%;
-    height: 60px;
-    display: block;
-  }
-
-  /* ─── Level meter ────────────────────────────────────────────── */
-  .level-bar-wrap {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 8px;
-  }
-  .level-label {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 9px;
-    letter-spacing: 1px;
-    color: var(--textdim);
-    width: 40px;
-    text-transform: uppercase;
-  }
-  .level-track {
-    flex: 1;
-    height: 6px;
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    overflow: hidden;
-  }
-  .level-fill {
-    height: 100%;
-    background: linear-gradient(90deg, var(--green3), var(--green));
-    width: 0%;
-    transition: width 0.05s;
-    box-shadow: var(--glow);
-  }
-
-  /* ─── Prediction badge ───────────────────────────────────────── */
-  .prediction-box {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    padding: 16px;
-    text-align: center;
-    margin-bottom: 16px;
-  }
-
-  .pred-label {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 28px;
-    letter-spacing: 4px;
-    font-weight: bold;
-    transition: color 0.3s, text-shadow 0.3s;
-  }
-  .pred-label.mine,
-  .pred-label.mine_feet,
-  .pred-label.mine_guns  { color: var(--yellow); text-shadow: 0 0 16px #ffcc0066; }
-  .pred-label.enemy,
-  .pred-label.enemy_feet,
-  .pred-label.enemy_guns { color: var(--red);    text-shadow: var(--glow-r); }
-  .pred-label.airstrike  { color: #ff8800;       text-shadow: 0 0 16px #ff880066; }
-  .pred-label.unknown    { color: var(--textdim); }
-  /* Confidence tiers: overlay opacity on top of class color */
-  .pred-label.conf-high  { opacity: 1; }
-  .pred-label.conf-med   { opacity: 0.65; }
-  .pred-label.conf-low   { opacity: 0.35; color: var(--textdim) !important; text-shadow: none !important; }
-
-  .pred-conf {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 11px;
-    color: var(--textdim);
-    letter-spacing: 2px;
-    margin-top: 4px;
-  }
-
-  /* ─── Live indicator ─────────────────────────────────────────── */
-  .pred-live-dot {
-    display: inline-block;
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: var(--green3);
-    margin-right: 6px;
-    vertical-align: middle;
-    opacity: 0.3;
-    transition: opacity 0.1s;
-  }
-  .pred-live-dot.pulse {
-    opacity: 1;
-    box-shadow: 0 0 8px var(--green3);
-  }
-
-  /* ─── Prediction history chips ──────────────────────────────── */
-  .pred-history {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    justify-content: center;
-    margin-top: 8px;
-    min-height: 22px;
-  }
-  .pred-chip {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 9px;
-    letter-spacing: 1px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    border: 1px solid var(--border);
-    opacity: 0.55;
-  }
-  .pred-chip:last-child { opacity: 1; border-color: var(--green3); }
-  .pred-chip.mine_feet,  .pred-chip.mine  { color: var(--yellow); border-color: #ffcc0044; }
-  .pred-chip.mine_guns                    { color: var(--yellow); border-color: #ffcc0044; }
-  .pred-chip.enemy_feet, .pred-chip.enemy { color: var(--red);    border-color: #ff003344; }
-  .pred-chip.enemy_guns                   { color: var(--red);    border-color: #ff003344; }
-  .pred-chip.airstrike                    { color: #ff8800;       border-color: #ff880044; }
-  .pred-chip.unknown                      { color: var(--textdim); }
-
-  /* ─── Sliders ────────────────────────────────────────────────── */
-  .slider-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 14px;
-  }
-
-  .slider-label {
-    width: 160px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text);
-    letter-spacing: 0.5px;
-  }
-  .slider-label small {
-    display: block;
-    font-size: 10px;
-    font-weight: 400;
-    color: var(--textdim);
-    letter-spacing: 1px;
-    font-family: 'Share Tech Mono', monospace;
-  }
-
-  input[type=range] {
-    -webkit-appearance: none;
-    flex: 1;
-    height: 4px;
-    background: var(--border);
-    outline: none;
-    cursor: pointer;
-  }
-  input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 14px; height: 14px;
-    background: var(--green);
-    border-radius: 0;
-    box-shadow: var(--glow);
-    clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
-  }
-
-  .slider-val {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 11px;
-    color: var(--green);
-    width: 40px;
-    text-align: right;
-  }
-
-  /* ─── Buttons ────────────────────────────────────────────────── */
-  .btn {
-    font-family: 'Rajdhani', sans-serif;
-    font-weight: 700;
-    font-size: 13px;
-    letter-spacing: 3px;
-    text-transform: uppercase;
-    border: none;
-    padding: 10px 20px;
-    cursor: pointer;
-    transition: all 0.2s;
-    clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%);
-  }
-
-  .btn-green {
-    background: var(--green3);
-    color: var(--green);
-    border: 1px solid var(--green3);
-  }
-  .btn-green:hover  { background: var(--green); color: var(--bg); box-shadow: var(--glow); }
-  .btn-green:active { transform: scale(0.97); }
-
-  .btn-red {
-    background: #330010;
-    color: var(--red);
-  }
-  .btn-red:hover  { background: var(--red); color: #fff; box-shadow: var(--glow-r); }
-
-  .btn-yellow {
-    background: #332200;
-    color: var(--yellow);
-  }
-  .btn-yellow:hover { background: var(--yellow); color: var(--bg); }
-
-  .btn-dim {
-    background: var(--bg3);
-    color: var(--textdim);
-  }
-
-  .btn-row {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-  /* ─── Toggle switches ────────────────────────────────────────── */
-  .toggle {
-    position: relative; display: inline-block;
-    width: 42px; height: 22px; flex-shrink: 0;
-  }
-  .toggle input { opacity: 0; width: 0; height: 0; }
-  .toggle-slider {
-    position: absolute; cursor: pointer; inset: 0;
-    background: var(--bg3); border: 1px solid var(--border);
-    transition: .3s; border-radius: 22px;
-  }
-  .toggle-slider::before {
-    content: ''; position: absolute;
-    width: 16px; height: 16px;
-    left: 2px; bottom: 2px;
-    background: var(--dim); border-radius: 50%; transition: .3s;
-  }
-  .toggle input:checked + .toggle-slider { background: var(--green3); border-color: var(--green); }
-  .toggle input:checked + .toggle-slider::before { background: var(--green); transform: translateX(20px); }
-  .noise-row {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 8px 0; border-bottom: 1px solid var(--border);
-  }
-  .noise-row:last-child { border-bottom: none; }
-  .noise-label { font-size: 13px; color: var(--text); }
-  .noise-label small { display: block; font-size: 10px; color: var(--textdim); margin-top: 2px; }
-
-  /* ─── Training section ───────────────────────────────────────── */
-  .train-cards {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin-bottom: 16px;
-  }
-
-  .train-card {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    padding: 16px;
-    text-align: center;
-    cursor: pointer;
-    transition: all 0.2s;
-    position: relative;
-    overflow: hidden;
-  }
-  .train-card::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    opacity: 0;
-    transition: opacity 0.2s;
-  }
-  .train-card.mine::before   { background: rgba(255,204,0,0.05); }
-  .train-card.enemy::before  { background: rgba(255,34,68,0.05); }
-  .train-card.active-mine    { border-color: var(--yellow); }
-  .train-card.active-mine::before { opacity: 1; }
-  .train-card.active-enemy   { border-color: var(--red); }
-  .train-card.active-enemy::before { opacity: 1; }
-
-  .train-card-icon { font-size: 28px; margin-bottom: 8px; }
-  .train-card-title {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 11px;
-    letter-spacing: 3px;
-    text-transform: uppercase;
-  }
-  .train-card.mine .train-card-title   { color: var(--yellow); }
-  .train-card.enemy .train-card-title  { color: var(--red); }
-
-  .train-card-count {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 24px;
-    font-weight: bold;
-    margin-top: 8px;
-  }
-  .train-card.mine .train-card-count   { color: var(--yellow); }
-  .train-card.enemy .train-card-count  { color: var(--red); }
-
-  .train-tip {
-    font-size: 11px;
-    color: var(--textdim);
-    font-family: 'Share Tech Mono', monospace;
-    letter-spacing: 1px;
-    margin-top: 6px;
-  }
-
-  /* ─── Review panel ───────────────────────────────────────────── */
-  .review-badge {
-    display: inline-flex; align-items: center; justify-content: center;
-    background: var(--red); color: #fff;
-    border-radius: 10px; padding: 1px 8px;
-    font-size: 10px; font-family: 'Share Tech Mono', monospace;
-    margin-left: 8px; min-width: 20px;
-    animation: pulse 1.5s infinite;
-  }
-
-  .review-card {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 10px 12px;
-  }
-
-  .rv-label {
-    display: inline-block;
-    padding: 2px 8px; border-radius: 3px;
-    font-size: 10px; font-family: 'Share Tech Mono', monospace;
-    letter-spacing: 1px; text-transform: uppercase;
-    font-weight: 600;
-  }
-  .rv-mine_feet  { background: rgba(255,204,0,0.15); color: var(--yellow); border: 1px solid rgba(255,204,0,0.35); }
-  .rv-mine_guns  { background: rgba(0,204,255,0.12); color: #00ccff;       border: 1px solid rgba(0,204,255,0.3);  }
-  .rv-enemy_feet { background: rgba(255,34,68,0.15);  color: var(--red);   border: 1px solid rgba(255,34,68,0.35); }
-  .rv-enemy_guns { background: rgba(255,102,0,0.15);  color: var(--orange);border: 1px solid rgba(255,102,0,0.35); }
-  .rv-airstrike  { background: rgba(255,80,80,0.12);  color: #ff5050;      border: 1px solid rgba(255,80,80,0.3);  }
-
-  .btn-reject {
-    background: rgba(255,34,68,0.15);
-    color: var(--red);
-    border: 1px solid rgba(255,34,68,0.35);
-  }
-  .btn-reject:hover { background: var(--red); color: #fff; box-shadow: var(--glow-r); }
-
-  /* ─── Device select ──────────────────────────────────────────── */
-  select {
-    width: 100%;
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 8px 12px;
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 11px;
-    letter-spacing: 1px;
-    margin-bottom: 10px;
-    appearance: none;
-    cursor: pointer;
-  }
-  select:focus { outline: none; border-color: var(--green3); }
-
-  /* ─── Log console ────────────────────────────────────────────── */
-  .log {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    padding: 12px;
-    height: 100px;
-    overflow-y: auto;
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 1px;
-    line-height: 1.8;
-  }
-  .log-entry { color: var(--textdim); }
-  .log-entry.ok  { color: var(--green2); }
-  .log-entry.err { color: var(--red); }
-  .log-entry.warn { color: var(--yellow); }
-
-  /* ─── Stats row ──────────────────────────────────────────────── */
-  .stats { display: flex; gap: 12px; margin-bottom: 16px; }
-  .stat-box {
-    flex: 1;
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    padding: 10px;
-    text-align: center;
-  }
-  .stat-val {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 20px;
-    color: var(--green);
-    display: block;
-  }
-  .stat-key {
-    font-size: 10px;
-    letter-spacing: 2px;
-    color: var(--textdim);
-    text-transform: uppercase;
-    font-family: 'Share Tech Mono', monospace;
-  }
-
-  /* ─── Responsive ─────────────────────────────────────────────── */
-  @media (max-width: 720px) {
-    .grid { grid-template-columns: 1fr; }
-    .full { grid-column: 1; }
-    .train-cards { grid-template-columns: 1fr 1fr; }
-  }
-
-  .section-gap { margin-top: 16px; }
-
-  /* Progress bar for training */
-  .progress-wrap { margin-bottom: 14px; }
-  .progress-label {
-    display: flex;
-    justify-content: space-between;
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
-    color: var(--textdim);
-    margin-bottom: 4px;
-    letter-spacing: 1px;
-  }
-  .progress-track {
-    height: 4px;
-    background: var(--bg2);
-    border: 1px solid var(--border);
-  }
-  .progress-fill {
-    height: 100%;
-    background: var(--green3);
-    transition: width 0.5s;
-  }
-
-  .badge {
-    display: inline-block;
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 9px;
-    letter-spacing: 2px;
-    padding: 2px 8px;
-    border: 1px solid;
-    text-transform: uppercase;
-  }
-  .badge-green { color: var(--green); border-color: var(--green3); }
-  .badge-red   { color: var(--red);   border-color: #330010; }
-  .badge-dim   { color: var(--textdim); border-color: var(--border); }
-
-  /* ─── App Shell ────────────────────────────────────────────────── */
-  body { overflow:hidden; height:100vh; }
+  /* ─── App Shell ────────────────────────────────────────────── */
   .app-shell { display:flex; height:100vh; overflow:hidden; }
 
   .sidebar {
@@ -610,8 +74,20 @@
     display:flex; flex-direction:column; z-index:10;
   }
   .sidebar-logo { padding:18px 16px 14px; border-bottom:1px solid var(--border); }
-  .sidebar-logo .logo .big { font-size:15px; letter-spacing:4px; }
-  .sidebar-logo .logo { font-size:9px; }
+  .logo {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    color: var(--green);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    line-height: 1.6;
+  }
+  .logo .big {
+    font-size: 15px;
+    letter-spacing: 4px;
+    display: block;
+    text-shadow: var(--glow);
+  }
 
   .nav-items { flex:1; padding:10px 0; display:flex; flex-direction:column; }
   .nav-item {
@@ -627,7 +103,11 @@
   .nav-item.active { color:var(--green); background:rgba(0,255,106,0.07); border-left-color:var(--green); text-shadow:var(--glow); }
   .nav-icon { font-size:13px; width:16px; text-align:center; }
 
-  .sidebar-bottom { padding:14px 16px; border-top:1px solid var(--border); }
+  .sidebar-bottom {
+    padding:14px 16px; border-top:1px solid var(--border);
+    font-family:'Share Tech Mono',monospace; font-size:9px;
+    color:var(--textdim); letter-spacing:1px;
+  }
 
   .app-main { flex:1; overflow-y:auto; display:flex; flex-direction:column; min-width:0; }
   .app-topbar {
@@ -639,6 +119,217 @@
   .app-content { padding:20px; flex:1; }
   .page { display:none; }
   .page.active { display:block; }
+
+  /* ─── Status pill ──────────────────────────────────────────── */
+  .status-pill {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--panel); border: 1px solid var(--border);
+    padding: 8px 16px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+  }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--dim); transition: background 0.3s, box-shadow 0.3s;
+  }
+  .dot.active { background: var(--green); box-shadow: var(--glow); animation: pulse 2s infinite; }
+  .dot.warn   { background: var(--yellow); }
+  .dot.error  { background: var(--red); }
+
+  /* ─── Panel ──────────────────────────────────────────────────── */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 20px;
+    position: relative;
+    margin-bottom: 16px;
+  }
+  .panel::before {
+    content: '';
+    position: absolute; top: 0; left: 0;
+    width: 4px; height: 100%;
+    background: var(--green3);
+  }
+  .panel-title {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px; letter-spacing: 3px;
+    color: var(--green); text-transform: uppercase;
+    margin-bottom: 16px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel-title::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+
+  /* ─── Preset cards ───────────────────────────────────────────── */
+  .preset-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .preset-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 16px 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+  .preset-card:hover { border-color: var(--green3); background: rgba(0,255,106,0.03); }
+  .preset-card.active {
+    border-color: var(--green);
+    background: rgba(0,255,106,0.06);
+    box-shadow: inset 0 0 20px rgba(0,255,106,0.05);
+  }
+  .preset-card.active::after {
+    content: '✓ ACTIVE';
+    position: absolute; top: 6px; right: 8px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 8px; letter-spacing: 2px; color: var(--green);
+  }
+  .preset-icon { font-size: 28px; margin-bottom: 8px; }
+  .preset-name {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px; letter-spacing: 3px;
+    color: var(--green); text-transform: uppercase;
+  }
+  .preset-desc {
+    font-size: 10px; color: var(--textdim);
+    font-family: 'Share Tech Mono', monospace;
+    letter-spacing: 0.5px; margin-top: 6px; line-height: 1.4;
+  }
+
+  /* ─── Sliders ────────────────────────────────────────────────── */
+  .slider-row {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 14px;
+  }
+  .slider-label {
+    width: 140px;
+    font-size: 13px; font-weight: 600;
+    color: var(--text); letter-spacing: 0.5px;
+  }
+  .slider-label small {
+    display: block; font-size: 10px; font-weight: 400;
+    color: var(--textdim); letter-spacing: 1px;
+    font-family: 'Share Tech Mono', monospace;
+  }
+  input[type=range] {
+    -webkit-appearance: none; flex: 1;
+    height: 4px; background: var(--border);
+    outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    background: var(--green); border-radius: 0;
+    box-shadow: var(--glow);
+    clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+  }
+  .slider-val {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px; color: var(--green);
+    width: 60px; text-align: right;
+  }
+
+  /* ─── Buttons ────────────────────────────────────────────────── */
+  .btn {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 700; font-size: 13px;
+    letter-spacing: 3px; text-transform: uppercase;
+    border: none; padding: 10px 20px;
+    cursor: pointer; transition: all 0.2s;
+    clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%);
+  }
+  .btn-green {
+    background: var(--green3); color: var(--green);
+    border: 1px solid var(--green3);
+  }
+  .btn-green:hover  { background: var(--green); color: var(--bg); box-shadow: var(--glow); }
+  .btn-green:active { transform: scale(0.97); }
+  .btn-red {
+    background: #330010; color: var(--red);
+  }
+  .btn-red:hover  { background: var(--red); color: #fff; box-shadow: var(--glow-r); }
+  .btn-dim {
+    background: var(--bg3); color: var(--textdim);
+  }
+  .btn-dim:hover { color: var(--text); }
+  .btn-yellow {
+    background: #332200; color: var(--yellow);
+  }
+  .btn-yellow:hover { background: var(--yellow); color: var(--bg); }
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+
+  .btn-big {
+    font-size: 15px; padding: 14px 36px; letter-spacing: 5px;
+  }
+
+  /* ─── Chain (software detection) ─────────────────────────────── */
+  .chain-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+  }
+  .chain-item {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 6px; padding: 10px 6px;
+    background: var(--bg2); border: 1px solid var(--border);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px; letter-spacing: 1px; color: var(--textdim);
+    text-align: center; text-transform: uppercase;
+  }
+  .chain-item.detected { color: var(--green2); border-color: var(--green3); }
+  .chain-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--dim);
+  }
+  .chain-item.detected .chain-dot {
+    background: var(--green); box-shadow: var(--glow);
+  }
+
+  /* ─── Log console ────────────────────────────────────────────── */
+  .log {
+    background: var(--bg2); border: 1px solid var(--border);
+    padding: 12px; height: 100px; overflow-y: auto;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px; letter-spacing: 1px; line-height: 1.8;
+  }
+  .log-entry { color: var(--textdim); }
+  .log-entry.ok  { color: var(--green2); }
+  .log-entry.err { color: var(--red); }
+  .log-entry.warn { color: var(--yellow); }
+
+  /* ─── Profile row ────────────────────────────────────────────── */
+  .profile-row {
+    display: flex; gap: 8px; align-items: center; margin-bottom: 8px;
+  }
+  .profile-input {
+    flex: 1;
+    background: var(--bg2); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 12px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px; letter-spacing: 1px;
+  }
+  .profile-input:focus { outline: none; border-color: var(--green3); }
+  .profile-list {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
+  }
+  .profile-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 12px;
+    background: var(--bg2); border: 1px solid var(--border);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px; letter-spacing: 1px; color: var(--text);
+    cursor: pointer; transition: all 0.2s;
+  }
+  .profile-chip:hover { border-color: var(--green3); color: var(--green); }
+  .profile-chip .del {
+    color: var(--textdim); cursor: pointer; font-size: 12px;
+  }
+  .profile-chip .del:hover { color: var(--red); }
 
   /* ─── Settings page ────────────────────────────────────────── */
   .update-box {
@@ -657,50 +348,56 @@
   .info-val { font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--green); letter-spacing:1px; text-decoration:none; }
   .info-val:hover { text-shadow:var(--glow); }
 
-  /* ─── Account page ─────────────────────────────────────────── */
-  .account-card { background:var(--bg2); border:1px solid var(--border); padding:28px; text-align:center; margin-bottom:12px; }
-  .account-avatar {
-    width:60px; height:60px; margin:0 auto 14px;
-    background:var(--bg3); border:2px solid var(--green3);
-    display:flex; align-items:center; justify-content:center;
-    font-size:26px; color:var(--green);
-    clip-path:polygon(15% 0%,85% 0%,100% 15%,100% 85%,85% 100%,15% 100%,0% 85%,0% 15%);
+  /* ─── APO Warning ────────────────────────────────────────────── */
+  .apo-warning {
+    display: none;
+    background: rgba(255,34,68,0.08);
+    border: 1px solid rgba(255,34,68,0.3);
+    padding: 20px 24px;
+    margin-bottom: 16px;
+    text-align: center;
   }
-  .plan-badge { display:inline-block; font-family:'Share Tech Mono',monospace; font-size:9px; letter-spacing:3px; padding:4px 14px; background:var(--bg3); border:1px solid var(--green3); color:var(--green); text-transform:uppercase; margin-bottom:18px; }
-  .plan-features { list-style:none; text-align:left; max-width:280px; margin:0 auto; }
-  .plan-features li { font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--textdim); padding:6px 0; border-bottom:1px solid var(--border); letter-spacing:1px; }
-  .plan-features li::before { content:'✓  '; color:var(--green3); }
+  .apo-warning.show { display: block; }
+  .apo-warning h3 {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 13px; letter-spacing: 3px;
+    color: var(--red); margin-bottom: 10px;
+  }
+  .apo-warning p {
+    font-size: 13px; color: var(--textdim);
+    margin-bottom: 12px; line-height: 1.6;
+  }
+
+  /* ─── Responsive ─────────────────────────────────────────────── */
+  @media (max-width: 850px) {
+    .preset-grid { grid-template-columns: repeat(2, 1fr); }
+    .chain-grid  { grid-template-columns: repeat(3, 1fr); }
+  }
 </style>
 </head>
 <body>
 <div class="app-shell">
 
-  <!-- SIDEBAR NAV -->
+  <!-- SIDEBAR -->
   <nav class="sidebar">
     <div class="sidebar-logo">
       <div class="logo">
         <span class="big">⬡ WARZONE</span>
-        AUDIO ENHANCER <span id="sidebarVersion">...</span>
+        AUDIO ENHANCER <span id="sidebarVersion">v2.0</span>
       </div>
     </div>
     <div class="nav-items">
       <button class="nav-item active" id="nav-home" onclick="navigate('home')">
-        <span class="nav-icon">◈</span> HOME
-      </button>
-      <button class="nav-item" id="nav-audio" onclick="navigate('audio')">
-        <span class="nav-icon">◈</span> AUDIO
+        <span class="nav-icon">◈</span> SHAPER
       </button>
       <button class="nav-item" id="nav-settings" onclick="navigate('settings')">
         <span class="nav-icon">⚙</span> SETTINGS
       </button>
-      <button class="nav-item" id="nav-account" onclick="navigate('account')">
-        <span class="nav-icon">◎</span> ACCOUNT
-      </button>
     </div>
     <div class="sidebar-bottom">
-      <div class="status-pill">
-        <div class="dot" id="statusDot"></div>
-        <span id="statusText">OFFLINE</span>
+      <div id="sidebarStatus" style="display:flex;align-items:center;gap:6px;">
+        <span class="dot" id="sidebarDot"></span>
+        <span id="sidebarStatusText">OFFLINE</span>
       </div>
     </div>
   </nav>
@@ -708,1875 +405,470 @@
   <!-- MAIN -->
   <div class="app-main">
     <div class="app-topbar">
-      <span class="page-title" id="pageTitle">◈ HOME // AUDIO ENGINE</span>
-      <span style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--textdim)" id="topbarVersion">...</span>
-      <button class="btn btn-dim" style="padding:3px 10px;font-size:10px;margin-left:8px" onclick="minimizeToTray()" title="Minimizar a la bandeja del sistema">⬡ BANDEJA</button>
+      <span class="page-title" id="pageTitle">◈ CHANNEL SHAPER</span>
+      <div class="status-pill" id="topbarStatus">
+        <span class="dot" id="topDot"></span>
+        <span id="topStatusText">OFFLINE</span>
+      </div>
     </div>
+
     <div class="app-content">
+      <!-- ═══════════════════════ HOME PAGE ═══════════════════════ -->
+      <div class="page active" id="page-home">
 
-    <!-- PAGE: HOME -->
-    <div id="page-home" class="page active">
-    <div class="grid">
-
-    <!-- ── LEFT COLUMN ── -->
-    <div>
-
-      <!-- Dispositivos -->
-      <div class="panel" style="margin-bottom:16px">
-        <div class="panel-title">⚙ Dispositivos de Audio</div>
-        <label style="font-size:12px;letter-spacing:1px;color:var(--textdim);font-family:'Share Tech Mono',monospace;display:block;margin-bottom:4px">INPUT (Loopback del sistema)</label>
-        <select id="inputDevice"><option value="">Cargando...</option></select>
-
-        <label style="font-size:12px;letter-spacing:1px;color:var(--textdim);font-family:'Share Tech Mono',monospace;display:block;margin-bottom:4px">OUTPUT (Auriculares)</label>
-        <select id="outputDevice"><option value="">Cargando...</option></select>
-
-
-
-        <div id="sameDevWarn" style="display:none;font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--yellow);border:1px solid #664400;padding:8px 10px;margin-top:8px;letter-spacing:1px">
-          [!] INPUT y OUTPUT son el mismo dispositivo.<br>Esto causará estática / feedback. Selecciona dispositivos distintos.
+        <!-- APO Warning (hidden if installed) -->
+        <div class="apo-warning" id="apoWarning">
+          <h3>⚠ EQUALIZERAPO NO DETECTADO</h3>
+          <p>Esta aplicación necesita EqualizerAPO para procesar audio.<br>
+          Instálalo y reinicia la aplicación.</p>
+          <button class="btn btn-yellow" onclick="installAPO()">DESCARGAR EQUALIZERAPO</button>
         </div>
 
-        <div class="btn-row" style="margin-top:12px">
-          <button class="btn btn-green" id="startBtn" onclick="startEngine()">▶ ACTIVAR</button>
-          <button class="btn btn-red"   id="stopBtn"  onclick="stopEngine()" disabled>■ DETENER</button>
-          <button class="btn btn-dim"   id="bypassBtn" onclick="toggleBypass()" title="Bypass: desactiva todo el procesamiento de EQ y deja pasar el audio sin modificar">⊘ BYPASS</button>
-        </div>
-        <div id="autostartRow" style="display:none;margin-top:8px">
-          <button class="btn btn-green" style="width:100%;letter-spacing:2px" onclick="doAutostart()">⚡ REANUDAR ÚLTIMA SESIÓN</button>
-        </div>
-        <!-- Software detectado -->
-        <div id="compatPanel" style="margin-top:14px;display:none">
-          <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:3px;color:var(--textdim);margin-bottom:8px">SOFTWARE DETECTADO</div>
-          <div id="compatList"></div>
-          <div style="font-size:10px;color:var(--green3);font-family:'Share Tech Mono',monospace;margin-top:8px;letter-spacing:1px">// Configuraciones existentes no serán modificadas</div>
-        </div>      </div>
-
-      <!-- Visualizador -->
-      <div class="panel" style="margin-bottom:16px">
-        <div class="panel-title">◈ Monitor de Audio</div>
-        <div class="waveform-wrap">
-          <canvas id="waveform"></canvas>
-        </div>
-        <div class="level-bar-wrap">
-          <span class="level-label">INPUT</span>
-          <div class="level-track"><div class="level-fill" id="levelFill"></div></div>
-          <span class="level-label" id="levelDb">-∞ dB</span>
-        </div>
-
-        <!-- Predicción ML -->
-        <div class="prediction-box" style="margin-top:12px">
-          <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:3px;color:var(--textdim);margin-bottom:8px">
-            <span class="pred-live-dot" id="predLiveDot"></span>CLASIFICACIÓN ML
-          </div>
-          <div class="pred-label unknown" id="predLabel">ANALIZANDO</div>
-          <div class="pred-conf" id="predConf">CONFIANZA: --.--%</div>
-          <div class="pred-history" id="predHistory"></div>
-        </div>
-
-        <!-- Timeline 30s -->
-        <div style="margin-top:10px">
-          <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--textdim);margin-bottom:4px">TIMELINE — 30 s</div>
-          <canvas id="timelineCanvas" height="18" style="width:100%;border-radius:3px;display:block;background:#060d09"></canvas>
-          <div id="timelineLegend" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:1px"></div>
-        </div>
-
-        <!-- Etiquetado retroactivo -->
-        <div style="margin-top:12px">
-          <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:2px;color:var(--textdim);margin-bottom:6px">← ETIQUETAR ÚLTIMOS 3s</div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px">
-            <button class="btn btn-dim" style="font-size:10px;padding:4px 8px" onclick="labelRecent('mine_feet')">👟 Mis Pasos</button>
-            <button class="btn btn-dim" style="font-size:10px;padding:4px 8px" onclick="labelRecent('mine_guns')">🔫 Mis Disparos</button>
-            <button class="btn btn-dim" style="font-size:10px;padding:4px 8px" onclick="labelRecent('enemy_feet')">☠ Pasos Ene.</button>
-            <button class="btn btn-dim" style="font-size:10px;padding:4px 8px" onclick="labelRecent('enemy_guns')">💥 Disparos Ene.</button>
-            <button class="btn btn-dim" style="font-size:10px;padding:4px 8px" onclick="labelRecent('airstrike')">✈ Aéreo</button>
-          </div>
-          <div id="labelRecentStatus" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--green3);margin-top:4px;min-height:14px"></div>
-          <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--textdim);margin-top:6px;letter-spacing:1px">
-            Hotkeys (funcionen con el juego en pantalla): <span style="color:var(--green3)">F1</span> Mis Pasos · <span style="color:var(--green3)">F2</span> Mis Disparos · <span style="color:var(--green3)">F3</span> Pasos Ene. · <span style="color:var(--green3)">F4</span> Disp. Ene. · <span style="color:var(--green3)">F5</span> Aéreo · <span style="color:var(--red)">F6</span> Detener — pulsa 2× el mismo para detener
+        <!-- Preset selection -->
+        <div class="panel" id="presetPanel">
+          <div class="panel-title">PRESET</div>
+          <div class="preset-grid" id="presetGrid">
+            <!-- Filled by JS -->
           </div>
         </div>
 
-        <div class="stats">
-          <div class="stat-box">
-            <span class="stat-val" id="samplesMine">0</span>
-            <span class="stat-key">muestras propias</span>
+        <!-- Channel Shaper sliders -->
+        <div class="panel">
+          <div class="panel-title">CHANNEL SHAPER</div>
+          <div id="sliderContainer">
+            <!-- Filled by JS -->
           </div>
-          <div class="stat-box">
-            <span class="stat-val" id="samplesEnemy">0</span>
-            <span class="stat-key">muestras enemigas</span>
-          </div>
-          <div class="stat-box">
-            <span class="stat-val" id="modelStatus">–</span>
-            <span class="stat-key">modelo ML</span>
+
+          <!-- Apply / Disable -->
+          <div class="btn-row">
+            <button class="btn btn-green btn-big" id="btnApply" onclick="applyConfig()">▶ APLICAR</button>
+            <button class="btn btn-red" id="btnDisable" onclick="disableConfig()">■ DESACTIVAR</button>
           </div>
         </div>
-      </div>
 
-    </div>
-
-    <!-- ── RIGHT COLUMN ── -->
-    <div>
-
-      <!-- Control de ganancias -->
-      <div class="panel" style="margin-bottom:16px">
-        <div class="panel-title">◉ Control de Ganancia</div>
-
-        <div class="slider-row">
-          <div class="slider-label">
-            Pasos Enemigos
-            <small>80 – 600 Hz | BOOST</small>
+        <!-- Profiles -->
+        <div class="panel">
+          <div class="panel-title">PERFILES</div>
+          <div class="profile-row">
+            <input type="text" class="profile-input" id="profileName" placeholder="Nombre del perfil..." maxlength="30">
+            <button class="btn btn-green" onclick="saveProfile()">GUARDAR</button>
           </div>
-          <input type="range" id="gainEnemyFeet" min="-20" max="12" step="0.5" value="4"
-                 oninput="updateGainDb('enemy_footsteps', this.value, 'valEF')">
-          <span class="slider-val" id="valEF">+4 dB</span>
+          <div class="profile-list" id="profileList"></div>
         </div>
 
-        <div class="slider-row">
-          <div class="slider-label">
-            Pasos Propios
-            <small>80 – 600 Hz | SILENCIAR</small>
-          </div>
-          <input type="range" id="gainOwnFeet" min="-20" max="0" step="0.5" value="-8"
-                 oninput="updateGainDb('own_footsteps', this.value, 'valOF')">
-          <span class="slider-val" id="valOF">-8 dB</span>
-        </div>
-
-        <div class="slider-row">
-          <div class="slider-label">
-            Mis Disparos
-            <small>600 – 4000 Hz | ATENUAR</small>
-          </div>
-          <input type="range" id="gainOwnGuns" min="-20" max="0" step="0.5" value="-8"
-                 oninput="updateGainDb('own_gunshots', this.value, 'valOG')">
-          <span class="slider-val" id="valOG">-8 dB</span>
-        </div>
-
-        <div class="slider-row">
-          <div class="slider-label">
-            Disparos Enemigos
-            <small>600 – 4000 Hz | BOOST</small>
-          </div>
-          <input type="range" id="gainGuns" min="-20" max="12" step="0.5" value="4"
-                 oninput="updateGainDb('enemy_gunshots', this.value, 'valG')">
-          <span class="slider-val" id="valG">+4 dB</span>
-        </div>
-
-        <div class="slider-row">
-          <div class="slider-label">
-            Ataques Aéreos (detectados)
-            <small>40 – 200 Hz | ATENUAR cuando se detectan</small>
-          </div>
-          <input type="range" id="gainAirVol" min="-20" max="0" step="0.5" value="-8"
-                 oninput="updateGainDb('airstrike_vol', this.value, 'valAV')">
-          <span class="slider-val" id="valAV">-8 dB</span>
-        </div>
-
-        <div class="slider-row">
-          <div class="slider-label">
-            Ataques Aéreos (boost)
-            <small>40 – 200 Hz | cuando NO detectados</small>
-          </div>
-          <input type="range" id="gainAir" min="-20" max="12" step="0.5" value="2"
-                 oninput="updateGainDb('airstrikes', this.value, 'valA')">
-          <span class="slider-val" id="valA">+2 dB</span>
-        </div>
-
-        <!-- Umbral de confianza ML -->
-        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
-          <div class="slider-row">
-            <div class="slider-label">
-              Umbral de confianza ML
-              <small>Si el modelo no supera este % → usa boost genérico en vez de clase detectada</small>
+        <!-- Audio chain -->
+        <div class="panel">
+          <div class="panel-title">CADENA DE AUDIO</div>
+          <div class="chain-grid" id="chainGrid">
+            <div class="chain-item" id="chain-apo">
+              <span class="chain-dot"></span>
+              EqualizerAPO
             </div>
-            <input type="range" id="confidenceThreshold" min="0" max="100" step="5" value="60"
-                   oninput="updateConfidenceThreshold(this.value)">
-            <span class="slider-val" id="valConf">60%</span>
+            <div class="chain-item" id="chain-voicemeeter">
+              <span class="chain-dot"></span>
+              Voicemeeter
+            </div>
+            <div class="chain-item" id="chain-vb_cable">
+              <span class="chain-dot"></span>
+              VB-Cable
+            </div>
+            <div class="chain-item" id="chain-hesuvi">
+              <span class="chain-dot"></span>
+              HeSuVi
+            </div>
+            <div class="chain-item" id="chain-reaplugs">
+              <span class="chain-dot"></span>
+              ReaPlugs
+            </div>
           </div>
         </div>
 
-        <!-- Perfiles de ganancia -->
-        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
-          <div style="font-family:'Share Tech Mono',monospace;font-size:9px;letter-spacing:3px;color:var(--textdim);margin-bottom:8px">PERFILES</div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-            <input type="text" id="profileName" placeholder="nombre del perfil"
-              style="flex:1;min-width:100px;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:5px 8px;font-family:'Share Tech Mono',monospace;font-size:11px;border-radius:3px">
-            <button class="btn btn-dim" style="padding:5px 10px;font-size:11px" onclick="saveProfile()">💾 Guardar</button>
-          </div>
-          <div id="profileList" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
+        <!-- Log -->
+        <div class="panel">
+          <div class="panel-title">LOG</div>
+          <div class="log" id="logBox"></div>
         </div>
+
       </div>
 
-      <!-- Entrenamiento ML -->
-      <div class="panel" style="margin-bottom:16px">
-        <div class="panel-title" style="display:flex;align-items:center;justify-content:space-between">
-          <span>◎ Entrenamiento ML</span>
-          <span id="reviewBadge" class="review-badge" style="display:none">0 pendientes</span>
+      <!-- ═══════════════════════ SETTINGS PAGE ═══════════════════ -->
+      <div class="page" id="page-settings">
+
+        <div class="panel">
+          <div class="panel-title">VERSIÓN</div>
+          <div class="update-box">
+            <div>
+              <div class="version-tag" id="versionTag">v2.0.0</div>
+              <div class="version-label">WARZONE AUDIO ENHANCER</div>
+            </div>
+            <button class="btn btn-green" onclick="checkUpdates()">BUSCAR ACTUALIZACIONES</button>
+          </div>
+          <div class="update-result" id="updateResult"></div>
         </div>
 
-        <p style="font-size:12px;color:var(--textdim);margin-bottom:14px;line-height:1.5">
-          Pulsa el botón correspondiente <strong style="color:var(--text)">mientras escuchas ese sonido</strong>. Con ≥10 muestras por clase el modelo se entrena solo y empieza a funcionar automáticamente.
-        </p>
-
-        <div class="train-cards" style="grid-template-columns:1fr 1fr">
-          <div class="train-card mine" id="cardMineFeet" onclick="toggleTraining('mine_feet')">
-            <div class="train-card-icon">👟</div>
-            <div class="train-card-title">Mis Pasos</div>
-            <div class="train-card-count" id="countMineFeet">0</div>
-            <div class="train-tip">Cuando caminas tú</div>
+        <div class="panel">
+          <div class="panel-title">INFORMACIÓN</div>
+          <div class="info-row">
+            <span class="info-key">REPOSITORIO</span>
+            <a class="info-val" href="#" onclick="openURL('https://github.com/mojotuning/Anki-Audio-boost');return false;">github.com/mojotuning/Anki-Audio-boost</a>
           </div>
-          <div class="train-card mine" id="cardMineGuns" onclick="toggleTraining('mine_guns')">
-            <div class="train-card-icon">🔫</div>
-            <div class="train-card-title">Mis Disparos</div>
-            <div class="train-card-count" id="countMineGuns">0</div>
-            <div class="train-tip">Cuando disparas tú</div>
+          <div class="info-row">
+            <span class="info-key">EQUALIZERAPO</span>
+            <a class="info-val" href="#" onclick="openURL('https://sourceforge.net/projects/equalizerapo/');return false;">sourceforge.net/projects/equalizerapo</a>
           </div>
-          <div class="train-card enemy" id="cardEnemyFeet" onclick="toggleTraining('enemy_feet')">
-            <div class="train-card-icon">☠</div>
-            <div class="train-card-title">Pasos Enemigo</div>
-            <div class="train-card-count" id="countEnemyFeet">0</div>
-            <div class="train-tip">Cuando camina el enemigo</div>
+          <div class="info-row">
+            <span class="info-key">MOTOR</span>
+            <span class="info-val">EqualizerAPO Config Writer</span>
           </div>
-          <div class="train-card enemy" id="cardEnemyGuns" onclick="toggleTraining('enemy_guns')">
-            <div class="train-card-icon">💥</div>
-            <div class="train-card-title">Disparos Enemigo</div>
-            <div class="train-card-count" id="countEnemyGuns">0</div>
-            <div class="train-tip">Cuando dispara el enemigo</div>
-          </div>
-          <div class="train-card enemy" id="cardAirstrike" onclick="toggleTraining('airstrike')" style="grid-column: 1/-1;">
-            <div class="train-card-icon">✈</div>
-            <div class="train-card-title">Ataques Aéreos</div>
-            <div class="train-card-count" id="countAirstrike">0</div>
-            <div class="train-tip">Helicópteros, jets, bombas</div>
+          <div class="info-row">
+            <span class="info-key">APO PATH</span>
+            <span class="info-val" id="apoPathInfo">—</span>
           </div>
         </div>
 
-        <div class="progress-wrap">
-          <div class="progress-label">
-            <span>PROGRESO DE ENTRENAMIENTO</span>
-            <span id="progressPct">0%</span>
+        <div class="panel">
+          <div class="panel-title">CRÉDITOS</div>
+          <div class="info-row">
+            <span class="info-key">DESARROLLADO POR</span>
+            <span class="info-val">MOJOTUNING</span>
           </div>
-          <div class="progress-track">
-            <div class="progress-fill" id="progressFill" style="width:0%"></div>
+          <div class="info-row">
+            <span class="info-key">LICENCIA</span>
+            <span class="info-val">MIT</span>
           </div>
         </div>
 
-        <div class="btn-row">
-          <button class="btn btn-green" onclick="trainModel()">⚡ ENTRENAR AHORA</button>
-          <button class="btn btn-dim"   onclick="clearSamples()">✕ LIMPIAR</button>
-        </div>
-      </div>
-
-      <!-- Panel Revisión de Muestras -->
-      <div class="panel" id="reviewPanel" style="margin-bottom:16px;display:none">
-        <div class="panel-title" style="display:flex;align-items:center;justify-content:space-between">
-          <span>◉ Revisión de Muestras</span>
-          <span id="reviewPanelCount" style="font-size:11px;color:var(--textdim);font-family:'Share Tech Mono',monospace"></span>
-        </div>
-        <p style="font-size:12px;color:var(--textdim);margin-bottom:12px;line-height:1.5">
-          Escucha cada fragmento antes de añadirlo al modelo. Rechaza los que contengan ruido o sean incorrectos.
-        </p>
-
-        <!-- Acciones masivas -->
-        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-          <button class="btn btn-green" style="font-size:11px;padding:5px 12px" onclick="confirmAllReview()">✓ Confirmar todos</button>
-          <button class="btn btn-reject" style="font-size:11px;padding:5px 12px" onclick="rejectAllReview()">✗ Descartar todos</button>
-          <button class="btn btn-dim"   style="font-size:11px;padding:5px 12px" onclick="stopPlayback()">◼ Detener audio</button>
-        </div>
-
-        <!-- Lista de chunks pendientes -->
-        <div id="reviewList" style="display:flex;flex-direction:column;gap:8px"></div>
-      </div>
-
-      <!-- Panel Comunidad -->
-      <div class="panel" style="margin-bottom:16px">
-        <div class="panel-title">◈ Modelo Comunitario</div>
-        <p style="font-size:12px;color:var(--textdim);margin-bottom:14px;line-height:1.5">
-          Comparte tu entrenamiento con todos los jugadores o descarga el modelo entrenado por la comunidad.
-        </p>
-
-        <div id="communityStatus" style="font-size:12px;color:var(--textdim);margin-bottom:12px;min-height:18px"></div>
-
-        <div class="btn-row" style="flex-wrap:wrap;gap:8px">
-          <button class="btn btn-green" onclick="downloadCommunityModel()" id="btnDlModel">
-            ⬇ Descargar modelo comunitario
-          </button>
-          <button class="btn btn-dim" onclick="downloadCommunitySamples()" id="btnDlSamples">
-            ⬇ Fusionar muestras comunitarias
-          </button>
-          <button class="btn btn-dim" onclick="publishToCommunity()" id="btnPublish">
-            ⬆ Publicar mi modelo
-          </button>
-          <button class="btn btn-dim" onclick="submitSamples()" id="btnSubmit">
-            ✉ Enviar mis muestras
-          </button>
-        </div>
-        <p style="font-size:10px;color:var(--textdim);margin-top:10px;line-height:1.4">
-          <strong style="color:var(--text)">Descargar modelo</strong> — instala el modelo ya entrenado por otros (sin necesidad de entrenar tú mismo).<br>
-          <strong style="color:var(--text)">Fusionar muestras</strong> — descarga muestras comunitarias, las combina con las tuyas y reentrena localmente.<br>
-          <strong style="color:var(--text)">Publicar modelo</strong> — sube tu modelo al repositorio para que otros lo descarguen (requiere cuenta de GitHub).<br>
-          <strong style="color:var(--text)">Enviar muestras</strong> — contribuye tus muestras sin necesidad de publicar el modelo completo.
-        </p>
-      </div>
-
-    </div>
-
-    <!-- ── CONSOLE (full width) ── -->
-    <div class="panel full">
-      <div class="panel-title">◑ Consola del Sistema</div>
-      <div class="log" id="log">
-        <div class="log-entry">// WARZONE AUDIO ENHANCER iniciado</div>
-        <div class="log-entry ok">// Motor de audio listo</div>
-        <div class="log-entry">// Selecciona los dispositivos y presiona ACTIVAR</div>
       </div>
     </div>
-
-  </div><!-- /grid -->
-  </div><!-- /page-home -->
-
-    <!-- PAGE: AUDIO -->
-    <div id="page-audio" class="page">
-      <div class="grid" style="grid-template-columns:1fr">
-        <div>
-
-          <div class="panel" style="margin-bottom:16px">
-            <div class="panel-title">◎ Buffering WDM</div>
-            <p style="font-size:12px;color:var(--textdim);margin-bottom:14px;line-height:1.5">
-              Igual que el <strong style="color:var(--text)">Buffering WDM</strong> de Voicemeeter.
-              Un buffer más grande elimina la estática y los cortes, a costa de un poco más de latencia.
-              <strong style="color:var(--green)">512 o 1024</strong> son los más estables.
-              Cambia y pulsa <strong style="color:var(--text)">ACTIVAR</strong> para aplicar.
-            </p>
-            <div style="display:flex;gap:10px;flex-wrap:wrap">
-              <button class="btn btn-dim" id="buf128"  onclick="setBuffer(128)">128</button>
-              <button class="btn btn-dim" id="buf256"  onclick="setBuffer(256)">256</button>
-              <button class="btn btn-green" id="buf512"  onclick="setBuffer(512)">512 ✓</button>
-              <button class="btn btn-dim" id="buf1024" onclick="setBuffer(1024)">1024</button>
-              <button class="btn btn-dim" id="buf2048" onclick="setBuffer(2048)">2048</button>
-            </div>
-            <div style="margin-top:10px;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--textdim)">
-              Buffer actual: <span id="bufLabel" style="color:var(--green)">512 samples @ 48000 Hz = ~10.7 ms</span>
-            </div>
-          </div>
-
-          <div class="panel" style="margin-bottom:16px">
-            <div class="panel-title">◈ Reducción de Ruido / Estática</div>
-
-            <div class="noise-row">
-              <div class="noise-label">
-                Filtro Paso Alto
-                <small>Elimina rumble &lt; 100 Hz — zumbidos eléctricos, vibraciones, corriente AC</small>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" id="hpEnabled" onchange="updateNoise()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-
-            <div class="noise-row">
-              <div class="noise-label">
-                Noise Gate
-                <small>Silencia bloques de audio por debajo del umbral — mata estática en silencios</small>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" id="gateEnabled" onchange="updateNoise()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-
-            <div class="slider-row" id="gateRow" style="opacity:0.4;transition:opacity .2s">
-              <div class="slider-label">
-                Umbral del Gate
-                <small>Más alto = más agresivo (empieza en -34 dB)</small>
-              </div>
-              <input type="range" id="gateThreshold" min="0.001" max="0.1" step="0.001" value="0.02"
-                     oninput="updateNoise(); document.getElementById('valGT').textContent = Math.round(20*Math.log10(+this.value))+'dB'">
-              <span class="slider-val" id="valGT">-34dB</span>
-            </div>
-
-            <div class="noise-row" style="margin-top:6px">
-              <div class="noise-label">
-                Reducción Espectral
-                <small>Aprende el piso de ruido constante y lo resta — hiss, fan noise, estática de fondo</small>
-              </div>
-              <label class="toggle">
-                <input type="checkbox" id="nrEnabled" onchange="updateNoise()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-
-            <div class="slider-row" id="nrRow" style="opacity:0.4;transition:opacity .2s">
-              <div class="slider-label">
-                Intensidad NR
-                <small>Si notas artefactos metálicos, bájalo</small>
-              </div>
-              <input type="range" id="nrStrength" min="0.1" max="1.0" step="0.05" value="0.7"
-                     oninput="updateNoise(); document.getElementById('valNR').textContent = Math.round(+this.value*100)+'%'">
-              <span class="slider-val" id="valNR">70%</span>
-            </div>
-
-          </div>
-
-          <div class="panel">
-            <div class="panel-title">◎ Control de Ganancia</div>
-            <p style="font-size:12px;color:var(--textdim);line-height:1.5">
-              Los controles de ganancia están en <strong style="color:var(--green)">HOME → columna derecha</strong>.<br>
-              La reducción de ruido se aplica <strong style="color:var(--text)">antes</strong> del EQ y el boost de pasos.
-            </p>
-          </div>
-
-        </div>
-      </div>
-    </div><!-- /page-audio -->
-
-    <!-- PAGE: SETTINGS -->
-    <div id="page-settings" class="page">
-      <div class="grid">
-        <div>
-          <div class="panel" style="margin-bottom:16px">
-            <div class="panel-title">◎ Actualización del Programa</div>
-            <div class="update-box">
-              <div>
-                <div class="version-tag" id="currentVersion">...</div>
-                <div class="version-label">VERSIÓN ACTUAL</div>
-              </div>
-              <button class="btn btn-green" id="updateBtn" onclick="checkForUpdates()">↻ BUSCAR ACTUALIZACIÓN</button>
-            </div>
-            <div class="update-result" id="updateResult"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-title">◑ Información del Sistema</div>
-            <div class="info-row">
-              <span class="info-key">Repositorio</span>
-              <a class="info-val" href="#" onclick="openExternal('https://github.com/mojotuning/Anki-Audio-boost')">GitHub ↗</a>
-            </div>
-            <div class="info-row">
-              <span class="info-key">Descargas</span>
-              <a class="info-val" href="#" onclick="openExternal('https://github.com/mojotuning/Anki-Audio-boost/releases')">Releases ↗</a>
-            </div>
-            <div class="info-row">
-              <span class="info-key">Sample Rate</span>
-              <span class="info-val">44100 Hz</span>
-            </div>
-            <div class="info-row">
-              <span class="info-key">Block Size</span>
-              <span class="info-val">1024 samples</span>
-            </div>
-            <div class="info-row">
-              <span class="info-key">Modelo ML</span>
-              <span class="info-val" id="settingsModelStatus">–</span>
-            </div>
-          </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">◉ Compatibilidad Detectada</div>
-            <div id="compatPanelSettings">
-              <div style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--textdim);letter-spacing:1px">Abre HOME para escanear dispositivos.</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div><!-- /page-settings -->
-
-    <!-- PAGE: ACCOUNT -->
-    <div id="page-account" class="page">
-      <div class="grid">
-        <div>
-          <div class="panel">
-            <div class="panel-title">◎ Tu Cuenta</div>
-            <div class="account-card">
-              <div class="account-avatar">⬡</div>
-              <div class="plan-badge">FREE TIER</div>
-              <ul class="plan-features">
-                <li>Motor de audio en tiempo real</li>
-                <li>Clasificación ML ilimitada</li>
-                <li>Todos los ajustes de ganancia</li>
-                <li>Entrenamiento personalizado</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-        <div>
-          <div class="panel">
-            <div class="panel-title">◉ Planes // PRÓXIMAMENTE</div>
-            <div class="account-card" style="opacity:0.55">
-              <div class="plan-badge" style="border-color:#664400;color:var(--yellow)">PRO — PRÓXIMAMENTE</div>
-              <ul class="plan-features">
-                <li style="color:var(--yellow)">Perfiles de audio por partida</li>
-                <li style="color:var(--yellow)">Sincronización en la nube</li>
-                <li style="color:var(--yellow)">Modelos ML pre-entrenados</li>
-                <li style="color:var(--yellow)">Actualizaciones prioritarias</li>
-              </ul>
-            </div>
-            <button class="btn btn-dim" style="width:100%;margin-top:12px;clip-path:none" disabled>
-              NOTIFICARME CUANDO ESTÉ LISTO
-            </button>
-          </div>
-        </div>
-      </div>
-    </div><!-- /page-account -->
-
-    </div><!-- /app-content -->
-  </div><!-- /app-main -->
-</div><!-- /app-shell -->
+  </div>
+</div>
 
 <script>
-// ─── Estado ───────────────────────────────────────────────────────────────
-let isRunning      = false;
-let trainingActive = null;          // null | 'mine' | 'enemy'
-let levelHistory   = new Array(200).fill(0);
-let animFrame;
-
-// ─── Funciones llamadas directamente por Python ───────────────────────────
-function onAudioLevel(level) {
-  const pct = Math.min(level * 800, 100);
-  document.getElementById('levelFill').style.width = pct + '%';
-  const db = level > 0 ? (20 * Math.log10(level)).toFixed(1) : '-∞';
-  document.getElementById('levelDb').textContent = db + ' dB';
-  levelHistory.push(level);
-  levelHistory.shift();
-}
-
-const PRED_LABELS = {
-  mine_feet:  'MIS PASOS',
-  mine_guns:  'MIS DISPAROS',
-  enemy_feet: 'PASOS ENEMIGO',
-  enemy_guns: 'DISPAROS ENEMIGO',
-  airstrike:  'ATAQUE AÉREO',
-  mine:       'MIS PASOS',
-  enemy:      'ENEMIGO',
-  unknown:    'ANALIZANDO',
+// ─── State ──────────────────────────────────────────────────────────────────
+let state = {
+  enabled: false,
+  preset: 'warzone',
+  params: {},
+  apoInstalled: false,
 };
+let paramRanges = {};
+let presets = {};
+let _debounceTimers = {};
 
-// Historial de últimas N predicciones
-const PRED_HISTORY_MAX = 8;
-const _predHistory = [];
-
-function onPrediction(pred, conf) {
-  const el = document.getElementById('predLabel');
-  el.textContent = PRED_LABELS[pred] || pred.toUpperCase();
-  // Confidence color tier: green (>80%), yellow (threshold–80%), gray (<threshold)
-  const _thresh = parseFloat(document.getElementById('confidenceThreshold')?.value || 60) / 100;
-  let confClass = 'conf-low';
-  if (pred !== 'unknown') {
-    if (conf >= 0.80) confClass = 'conf-high';
-    else if (conf >= _thresh) confClass = 'conf-med';
-  }
-  el.className = 'pred-label ' + (pred || 'unknown') + ' ' + confClass;
-  document.getElementById('predConf').textContent =
-    pred === 'unknown'
-      ? 'CONFIANZA: --.--%'
-      : `CONFIANZA: ${(conf * 100).toFixed(1)}%`;
-
-  // Pulsar el dot verde
-  const dot = document.getElementById('predLiveDot');
-  if (dot) {
-    dot.classList.add('pulse');
-    clearTimeout(dot._pulseTimer);
-    dot._pulseTimer = setTimeout(() => dot.classList.remove('pulse'), 350);
-  }
-
-  // Timeline
-  _timelinePush(pred);
-
-  // Añadir al historial (solo si la clase cambió o es la primera entrada)
-  if (pred !== 'unknown' && (_predHistory.length === 0 || _predHistory[_predHistory.length - 1].pred !== pred)) {
-    _predHistory.push({ pred, conf });
-    if (_predHistory.length > PRED_HISTORY_MAX) _predHistory.shift();
-    const hist = document.getElementById('predHistory');
-    if (hist) {
-      hist.innerHTML = _predHistory.map((e, i) => {
-        const label = (PRED_LABELS[e.pred] || e.pred).replace('MIS ', '').replace(' ENEMIGO', ' ENE.');
-        return `<span class="pred-chip ${e.pred}">${label}</span>`;
-      }).join('');
-    }
-  }
-}
-
-function onStatus(msg) {
-  // Señal interna del motor: el preview por stream ha terminado
-  if (msg === '__preview_ended__') {
-    clearTimeout(_previewEndTimer);
-    _previewEndTimer = null;
-    if (_playingId !== null) {
-      const btn = document.getElementById('play-' + _playingId);
-      if (btn) { btn.textContent = '▶ ESCUCHAR'; btn.classList.remove('btn-green'); }
-      _playingId = null;
-    }
-    return;
-  }
-  log(msg);
-}
-
-// Llamado por Python: F1-F5 inician grabación para esa clase
-function onHotkeyStartTraining(label) {
-  startTraining(label);  // actualiza tarjetas, dot y status
-  const names = { mine_feet:'Mis Pasos', mine_guns:'Mis Disparos', enemy_feet:'Pasos Ene.', enemy_guns:'Disp. Ene.', airstrike:'Aéreo' };
-  log(`[HOTKEY] ● Grabando → ${names[label] || label}  (F6 para detener)`, 'warn');
-}
-
-// Llamado por Python: F1 segunda vez o F6 detienen grabación
-function onHotkeyStopTraining() {
-  stopTraining();
-  log('[HOTKEY F6] Grabación detenida', 'ok');
-}
-
-// ─── Review de muestras ──────────────────────────────────────────────────
-
-const _LABEL_NAMES = {
-  mine_feet: 'Mis Pasos', mine_guns: 'Mis Disparos',
-  enemy_feet: 'Pasos Ene.', enemy_guns: 'Disp. Ene.', airstrike: 'Aéreo'
-};
-
-// Llamado por Python cuando hay un nuevo chunk listo para revisar
-function onReviewUpdate(id, label, pendingCount) {
-  _updateReviewBadge(pendingCount);
-  refreshReviewPanel();
-  const name = _LABEL_NAMES[label] || label;
-  log(`◉ Nuevo fragmento de "${name}" listo para revisión (${pendingCount} pendientes)`, 'warn');
-}
-
-function _updateReviewBadge(count) {
-  const badge = document.getElementById('reviewBadge');
-  const panel = document.getElementById('reviewPanel');
-  if (badge) {
-    badge.style.display = count > 0 ? 'inline-flex' : 'none';
-    badge.textContent = count + (count === 1 ? ' pendiente' : ' pendientes');
-  }
-  if (panel) {
-    panel.style.display = count > 0 ? '' : 'none';
-  }
-  const ctr = document.getElementById('reviewPanelCount');
-  if (ctr) ctr.textContent = count > 0 ? `${count} fragmento${count>1?'s':''} pendiente${count>1?'s':''}` : '';
-}
-
-function _drawMiniWaveform(canvasId, waveform) {
-  const canvas = document.getElementById(canvasId);
-  if (!canvas || !waveform || !waveform.length) return;
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  ctx.clearRect(0, 0, W, H);
-  const maxVal = Math.max(...waveform, 0.001);
-  const barW = W / waveform.length;
-  ctx.fillStyle = '#00ff6a66';
-  const midY = H / 2;
-  for (let i = 0; i < waveform.length; i++) {
-    const h = (waveform[i] / maxVal) * midY;
-    ctx.fillRect(i * barW, midY - h, Math.max(barW - 0.5, 0.5), h * 2);
-  }
-}
-
-async function refreshReviewPanel() {
-  let items = [];
+// ─── API helpers ────────────────────────────────────────────────────────────
+async function api(method, ...args) {
   try {
-    items = await window.pywebview.api.get_pending_review();
-  } catch(e) { return; }
-
-  _updateReviewBadge(items.length);
-
-  const list = document.getElementById('reviewList');
-  if (!list) return;
-  list.innerHTML = '';
-
-  if (!items.length) return;
-
-  for (const item of items) {
-    const { id, label, rms, duration_ms, waveform } = item;
-    const labelCls  = 'rv-' + label;
-    const labelName = _LABEL_NAMES[label] || label;
-    const rmsColor  = rms > 60 ? 'var(--red)' : rms > 30 ? 'var(--yellow)' : 'var(--green)';
-    const rmsWidth  = Math.min(rms * 1.5, 100).toFixed(1);
-
-    const card = document.createElement('div');
-    card.className = 'review-card';
-    card.id = 'rc-' + id;
-    card.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-        <span class="rv-label ${labelCls}">${labelName}</span>
-        <span style="font-size:10px;color:var(--textdim);font-family:'Share Tech Mono',monospace">${duration_ms}ms</span>
-        <div style="flex:1;background:var(--bg3);height:5px;border-radius:2px;min-width:40px">
-          <div style="width:${rmsWidth}%;height:100%;background:${rmsColor};border-radius:2px;transition:width .3s"></div>
-        </div>
-        <span style="font-size:10px;color:${rmsColor};font-family:'Share Tech Mono',monospace">${rms}%</span>
-      </div>
-      <canvas id="wv-${id}" width="400" height="36"
-        style="width:100%;height:36px;display:block;margin-bottom:8px;border-radius:2px;background:var(--bg3)"></canvas>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        <button class="btn btn-dim" id="play-${id}" style="font-size:11px;padding:4px 12px"
-          onclick="playReviewSample(${id}, this)">▶ ESCUCHAR</button>
-        <button class="btn btn-green" style="font-size:11px;padding:4px 12px"
-          onclick="confirmSampleReview(${id})">✓ CONFIRMAR</button>
-        <button class="btn btn-reject" style="font-size:11px;padding:4px 12px"
-          onclick="rejectSampleReview(${id})">✗ DESCARTAR</button>
-      </div>`;
-    list.appendChild(card);
-
-    // Dibujar waveform después de insertar el canvas en el DOM
-    if (waveform && waveform.length) {
-      requestAnimationFrame(() => _drawMiniWaveform('wv-' + id, waveform));
-    }
+    return await window.pywebview.api[method](...args);
+  } catch (e) {
+    log('Error: ' + method + ' — ' + e.message, 'err');
+    return null;
   }
 }
 
-let _playingId = null;
-let _activeAudioSrc = null;
-let _audioCtx = null;
-let _previewEndTimer = null;
-
-async function playReviewSample(id, btn) {
-  // Si ya estamos reproduciendo este ID, detener
-  if (_playingId === id) {
-    stopPlayback();
-    if (btn) { btn.textContent = '▶ ESCUCHAR'; btn.classList.remove('btn-green'); }
-    _playingId = null;
-    return;
-  }
-  // Restaurar botón del anterior
-  if (_playingId !== null) {
-    const prevBtn = document.getElementById('play-' + _playingId);
-    if (prevBtn) { prevBtn.textContent = '▶ ESCUCHAR'; prevBtn.classList.remove('btn-green'); }
-    stopPlayback();
-  }
-  try {
-    const result = await window.pywebview.api.play_sample(id);
-    if (!result.ok) { log('Error reproduciendo: ' + (result.error || '?'), 'err'); return; }
-
-    _playingId = id;
-    if (btn) { btn.textContent = '◼ DETENER'; btn.classList.add('btn-green'); }
-
-    if (result.mode === 'stream') {
-      // Audio inyectado en el stream de PortAudio → mismo dispositivo que el juego
-      clearTimeout(_previewEndTimer);
-      _previewEndTimer = setTimeout(() => {
-        if (_playingId === id) {
-          _playingId = null;
-          if (btn) { btn.textContent = '▶ ESCUCHAR'; btn.classList.remove('btn-green'); }
-        }
-      }, (result.duration_ms || 5000) + 600);
-    } else {
-      // Fallback Web Audio API (motor parado)
-      const binary = atob(result.audio_b64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const sr = result.sample_rate || 48000;
-      if (!_audioCtx || _audioCtx.state === 'closed' || _audioCtx.sampleRate !== sr) {
-        _audioCtx = new AudioContext({sampleRate: sr});
-      }
-      if (_audioCtx.state === 'suspended') await _audioCtx.resume();
-      const audioBuffer = await _audioCtx.decodeAudioData(bytes.buffer);
-      const source = _audioCtx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(_audioCtx.destination);
-      _activeAudioSrc = source;
-      source.onended = () => {
-        if (_playingId === id) {
-          _playingId = null;
-          if (btn) { btn.textContent = '▶ ESCUCHAR'; btn.classList.remove('btn-green'); }
-        }
-      };
-      source.start(0);
-    }
-  } catch(e) {
-    log('Error reproduciendo: ' + e, 'err');
-  }
-}
-
-async function stopPlayback() {
-  clearTimeout(_previewEndTimer);
-  _previewEndTimer = null;
-  _playingId = null;
-  if (_activeAudioSrc) { try { _activeAudioSrc.stop(); } catch(e) {} _activeAudioSrc = null; }
-  try { await window.pywebview.api.stop_playback(); } catch(e) {}
-}
-
-async function confirmSampleReview(id) {
-  try {
-    const d = await window.pywebview.api.confirm_sample(id);
-    if (d.ok) {
-      document.getElementById('rc-' + id)?.remove();
-      if (d.samples) updateSampleUI(d.samples);
-      const remaining = document.getElementById('reviewList')?.children.length || 0;
-      _updateReviewBadge(remaining);
-      log(`✓ Fragmento confirmado y añadido al modelo`, 'ok');
-      if (remaining === 0) log('✅ Revisión completada — entrena el modelo para activar los cambios', 'ok');
-    }
-  } catch(e) { log('Error confirmando: ' + e, 'err'); }
-}
-
-async function rejectSampleReview(id) {
-  try {
-    await window.pywebview.api.reject_sample(id);
-    document.getElementById('rc-' + id)?.remove();
-    const remaining = document.getElementById('reviewList')?.children.length || 0;
-    _updateReviewBadge(remaining);
-    log(`✗ Fragmento descartado`, 'warn');
-  } catch(e) { log('Error descartando: ' + e, 'err'); }
-}
-
-async function confirmAllReview() {
-  try {
-    const d = await window.pywebview.api.confirm_all_pending();
-    if (d.added > 0) {
-      if (d.samples) updateSampleUI(d.samples);
-      log(`✓ ${d.added} fragmento${d.added>1?'s':''} confirmado${d.added>1?'s':''} y añadidos al modelo`, 'ok');
-    }
-    refreshReviewPanel();
-    _updateReviewBadge(0);
-  } catch(e) { log('Error: ' + e, 'err'); }
-}
-
-async function rejectAllReview() {
-  if (!confirm('¿Descartar todos los fragmentos pendientes?')) return;
-  try {
-    await window.pywebview.api.reject_all_pending();
-    log('✗ Todos los fragmentos descartados', 'warn');
-    refreshReviewPanel();
-    _updateReviewBadge(0);
-  } catch(e) { log('Error: ' + e, 'err'); }
-}
-
-// (legacy — ya no se usa para grabación, pero se mantiene por si acaso)
-function onHotkeyLabel(msg) {
-  log(msg, 'ok');
-  const el = document.getElementById('labelRecentStatus');
-  if (el) { el.textContent = msg; clearTimeout(el._ht); el._ht = setTimeout(() => { el.textContent = ''; }, 2500); }
-}
-
-// ─── Waveform canvas ──────────────────────────────────────────────────────
-function drawWaveform() {
-  const canvas = document.getElementById('waveform');
-  const ctx = canvas.getContext('2d');
-  canvas.width  = canvas.offsetWidth;
-  canvas.height = canvas.offsetHeight;
-  const w = canvas.width, h = canvas.height;
-
-  ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = '#0a120e';
-  ctx.fillRect(0, 0, w, h);
-
-  const step = w / levelHistory.length;
-  ctx.beginPath();
-  ctx.strokeStyle = '#00ff6a';
-  ctx.lineWidth = 1.5;
-  ctx.shadowBlur = 8;
-  ctx.shadowColor = '#00ff6a';
-
-  levelHistory.forEach((v, i) => {
-    const x = i * step;
-    const amp = Math.min(v * 400, 1);
-    const y1 = h/2 - (amp * h/2);
-    const y2 = h/2 + (amp * h/2);
-    if (i === 0) ctx.moveTo(x, h/2);
-    ctx.lineTo(x, y1);
-    ctx.lineTo(x, y2);
-    ctx.lineTo(x, h/2);
-  });
-  ctx.stroke();
-
-  animFrame = requestAnimationFrame(drawWaveform);
-}
-
-// ─── Dispositivos ─────────────────────────────────────────────────────────
-async function loadDevices() {
-  try {
-    const devs = await window.pywebview.api.get_devices();
-    const inp = document.getElementById('inputDevice');
-    const out = document.getElementById('outputDevice');
-
-    // Dispositivos de CAPTURA (input): tienen canales de entrada
-    // Dispositivos de PLAYBACK (output): tienen canales de salida
-    // Un cable virtual puede tener ambos — aparece en los dos lados (correcto)
-    let inHtml  = '<option value="">-- Selecciona input --</option>';
-    let outHtml = '<option value="">-- Selecciona output --</option>';
-
-    devs.forEach(d => {
-      // Solo mostrar en input si tiene canales de entrada Y NO es solo de salida
-      if (d.inputs > 0 && d.outputs === 0) {
-        inHtml += `<option value="${d.id}">${d.name}</option>`;
-      }
-      // Solo mostrar en output si tiene canales de salida Y NO es solo de entrada
-      if (d.outputs > 0 && d.inputs === 0) {
-        outHtml += `<option value="${d.id}">${d.name}</option>`;
-      }
-      // Cables virtuales (tienen ambos): aparecen en los dos dropdowns
-      if (d.inputs > 0 && d.outputs > 0) {
-        inHtml  += `<option value="${d.id}">${d.name}</option>`;
-        outHtml += `<option value="${d.id}">${d.name}</option>`;
-      }
-    });
-
-    inp.innerHTML = inHtml;
-    out.innerHTML = outHtml;
-
-    const sameWarn = document.getElementById('sameDevWarn');
-    const checkSame = () => {
-      if (sameWarn) sameWarn.style.display = (inp.value && out.value && inp.value === out.value) ? 'block' : 'none';
-    };
-    inp.addEventListener('change', checkSame);
-    out.addEventListener('change', checkSame);
-
-    log(`${devs.length} dispositivos detectados`, 'ok');
-  } catch(e) {
-    log('Error cargando dispositivos: ' + e, 'err');
-  }
-}
-
-// ─── Compatibilidad de software ───────────────────────────────────────────
-const KNOWN_TAGS = [
-  {k:'vb_cable',    label:'VB-Cable'},
-  {k:'voicemeeter', label:'Voicemeter'},
-  {k:'eq_apo',      label:'Equalizer APO'},
-];
-
-async function scanCompatibility() {
-  try {
-    const data  = await window.pywebview.api.software_scan();
-    const panel = document.getElementById('compatPanel');
-    const list  = document.getElementById('compatList');
-
-    list.innerHTML = '';
-    let anyFound = false;
-
-    KNOWN_TAGS.forEach(({k, label}) => {
-      if (data[k]) {
-        anyFound = true;
-        const nameDetail = data.detected.find(
-          s => s.toLowerCase().startsWith(label.toLowerCase())
-        ) || label;
-        list.innerHTML += `
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-            <span style="color:var(--green);font-family:'Share Tech Mono',monospace;font-size:11px">[OK]</span>
-            <span style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text)">${nameDetail}</span>
-          </div>`;
-      }
-    });
-
-    if (!anyFound) {
-      list.innerHTML = '<div style="font-family:\'Share Tech Mono\',monospace;font-size:10px;color:var(--yellow)">[!] No se detectó software de audio virtual.<br>Instala VB-Cable para capturar el audio del sistema.</div>';
-    }
-
-    panel.style.display = 'block';
-
-    if (data.suggested_input !== null) {
-      const inp = document.getElementById('inputDevice');
-      if (!inp.value) {
-        inp.value = String(data.suggested_input);
-        log(`Input auto-detectado: ${data.suggested_input_name}`, 'ok');
-      }
-    }
-  } catch(e) { /* silenciar */ }
-}
-
-// ─── Engine control ───────────────────────────────────────────────────────
-async function startEngine() {
-  const input  = document.getElementById('inputDevice').value;
-  const output = document.getElementById('outputDevice').value;
-
-  if (!input || !output) {
-    log('Selecciona input y output primero', 'warn'); return;
-  }
-  if (input === output) {
-    log('[!] INPUT y OUTPUT son el mismo dispositivo.', 'warn');
-    return;
-  }
-
-  try {
-    const d = await window.pywebview.api.start_engine(parseInt(input), parseInt(output));
-    if (d.success) {
-      isRunning = true;
-      setRunningState(true);
-      log('Motor de audio ACTIVO', 'ok');
-      // Resetear bypass al iniciar
-      const bb = document.getElementById('bypassBtn');
-      if (bb) { bb.textContent = '⊘ BYPASS'; bb.className = 'btn btn-dim'; }
-    } else {
-      const err = d.error || 'Error desconocido';
-      log(`[ERROR] ${err}`, 'err');
-      if (err.toLowerCase().includes('channel')) {
-        log('[TIP] El dispositivo no soporta ese número de canales. Prueba otro output.', 'warn');
-      } else if (err.toLowerCase().includes('invalid') || err.toLowerCase().includes('unavailable') || err.includes('-9985')) {
-        log('[TIP] Output ocupado por Voicemeeter. Selecciona ★ VoiceMeeter Input (o VoiceMeeter Aux Input) como OUTPUT. Voicemeeter recibirá el audio y lo enviará a tus auriculares vía A1.', 'warn');
-      } else if (err.toLowerCase().includes('sample') || err.toLowerCase().includes('rate')) {
-        log('[TIP] Sample rate incompatible. El dispositivo puede no soportar 44100 Hz.', 'warn');
-      }
-    }
-  } catch(e) {
-    log('Error: ' + e, 'err');
-  }
-}
-
-async function stopEngine() {
-  const d = await window.pywebview.api.stop_engine();
-  isRunning = false;
-  setRunningState(false);
-  log('Motor detenido');
-  // Resumen de sesión
-  const st = d.session_stats;
-  if (st && st.blocks_processed > 0) {
-    const mins = Math.floor(st.duration_s / 60);
-    const secs = Math.round(st.duration_s % 60);
-    const dur  = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-    const counts = st.class_counts;
-    const NAMES = { mine_feet:'Mis Pasos', mine_guns:'Mis Disparos', enemy_feet:'Pasos Ene.', enemy_guns:'Disp. Ene.', airstrike:'Aéreo', unknown:'Sin clase' };
-    const classStr = Object.entries(counts).filter(([k,v]) => k!=='unknown' && v>0)
-      .sort((a,b)=>b[1]-a[1]).map(([k,v]) => `${NAMES[k]||k}:${v}`).join(' | ');
-    log(`── RESUMEN DE SESIÓN ──`, 'ok');
-    log(`Duración: ${dur}  ·  Bloques analizados: ${st.blocks_processed}`, 'ok');
-    if (classStr) log(`Detecciones → ${classStr}`, 'ok');
-    log(`Confianza media: ${st.mean_confidence}%  ·  Cobertura: ${st.coverage_pct}%`, 'ok');
-  }
-}
-
-function setRunningState(running) {
-  document.getElementById('statusDot').className   = 'dot' + (running ? ' active' : '');
-  document.getElementById('statusText').textContent = running ? 'ACTIVO' : 'OFFLINE';
-  document.getElementById('startBtn').disabled = running;
-  document.getElementById('stopBtn').disabled  = !running;
-}
-
-// ─── Ganancias ────────────────────────────────────────────────────────────
-const gainTimeout = {};
-function updateGain(key, val, labelId) {
-  document.getElementById(labelId).textContent = parseFloat(val).toFixed(1) + '×';
-  clearTimeout(gainTimeout[key]);
-  gainTimeout[key] = setTimeout(async () => {
-    try {
-      await window.pywebview.api.set_gains({ [key]: parseFloat(val) });
-    } catch(e) {}
-  }, 300);
-}
-
-function updateGainDb(key, valDb, labelId) {
-  const db = parseFloat(valDb);
-  const linear = Math.pow(10, db / 20);
-  const sign = db >= 0 ? '+' : '';
-  document.getElementById(labelId).textContent = sign + db.toFixed(1) + ' dB';
-  clearTimeout(gainTimeout[key]);
-  gainTimeout[key] = setTimeout(async () => {
-    try {
-      await window.pywebview.api.set_gains({ [key]: linear });
-    } catch(e) {}
-  }, 300);
-}
-
-// ─── Buffering WDM ───────────────────────────────────────────────────────
-let _currentBuffer = 512;
-async function setBuffer(size) {
-  _currentBuffer = size;
-  // Resaltar botón activo
-  [128, 256, 512, 1024, 2048].forEach(s => {
-    const b = document.getElementById('buf' + s);
-    if (b) { b.className = s === size ? 'btn btn-green' : 'btn btn-dim'; b.textContent = String(s) + (s===size?' ✓':''); }
-  });
-  const ms = (size / 48000 * 1000).toFixed(1);
-  const lbl = document.getElementById('bufLabel');
-  if (lbl) lbl.textContent = `${size} samples @ 48000 Hz = ~${ms} ms`;
-  try {
-    await window.pywebview.api.set_buffer_size(size);
-    log(`Buffer WDM: ${size} samples (~${ms} ms) — pulsa ACTIVAR para aplicar`, 'ok');
-  } catch(e) {}
-}
-
-// ─── Reducción de ruido ───────────────────────────────────────────────────
-let noiseTimeout = null;
-function updateNoise() {
-  const gateEnabled = document.getElementById('gateEnabled').checked;
-  const nrEnabled   = document.getElementById('nrEnabled').checked;
-  document.getElementById('gateRow').style.opacity = gateEnabled ? '1' : '0.4';
-  document.getElementById('nrRow').style.opacity   = nrEnabled   ? '1' : '0.4';
-  clearTimeout(noiseTimeout);
-  noiseTimeout = setTimeout(async () => {
-    try {
-      await window.pywebview.api.set_noise_config({
-        hp_enabled:     document.getElementById('hpEnabled').checked,
-        gate_enabled:   gateEnabled,
-        gate_threshold: parseFloat(document.getElementById('gateThreshold').value),
-        nr_enabled:     nrEnabled,
-        nr_strength:    parseFloat(document.getElementById('nrStrength').value),
-      });
-    } catch(e) {}
-  }, 150);
-}
-
-// ─── Entrenamiento ────────────────────────────────────────────────────────
-function toggleTraining(label) {
-  if (trainingActive === label) stopTraining();
-  else startTraining(label);
-}
-
-const CARD_MAP = {
-  mine_feet:  { id: 'cardMineFeet',  cls: 'mine',  active: 'active-mine'  },
-  mine_guns:  { id: 'cardMineGuns',  cls: 'mine',  active: 'active-mine'  },
-  enemy_feet: { id: 'cardEnemyFeet', cls: 'enemy', active: 'active-enemy' },
-  enemy_guns: { id: 'cardEnemyGuns', cls: 'enemy', active: 'active-enemy' },
-  airstrike:  { id: 'cardAirstrike', cls: 'enemy', active: 'active-enemy' },
-};
-
-function _syncCardStates(activeLabel) {
-  for (const [lbl, cfg] of Object.entries(CARD_MAP)) {
-    const el = document.getElementById(cfg.id);
-    if (el) el.className = `train-card ${cfg.cls}` + (lbl === activeLabel ? ` ${cfg.active}` : '');
-  }
-}
-
-async function startTraining(label) {
-  if (!isRunning) { log('Activa el motor primero', 'warn'); return; }
-
-  trainingActive = label;
-  _syncCardStates(label);
-
-  await window.pywebview.api.start_training(label);
-
-  document.getElementById('statusDot').className = 'dot training';
-  document.getElementById('statusText').textContent = 'ENTRENANDO: ' + label.toUpperCase();
-  const names = { mine_feet:'MIS PASOS', mine_guns:'MIS DISPAROS', enemy_feet:'PASOS ENEMIGO', enemy_guns:'DISPAROS ENEMIGO', airstrike:'ATAQUE AÉREO' };
-  log(`Grabando muestras: ${names[label] || label}`, 'warn');
-}
-
-async function stopTraining() {
-  trainingActive = null;
-  _syncCardStates(null);
-
-  await window.pywebview.api.stop_training();
-
-  if (isRunning) {
-    document.getElementById('statusDot').className = 'dot active';
-    document.getElementById('statusText').textContent = 'ACTIVO';
-  }
-  log('Grabación detenida');
-  pollStatus();
-}
-
-async function trainModel() {
-  log('Entrenando modelo ML...', 'warn');
-  try {
-    const d = await window.pywebview.api.train_model();
-    if (d.success) {
-      log(`Modelo entrenado ✓ — ${d.samples.mine} propios / ${d.samples.enemy} enemigos`, 'ok');
-      updateSampleUI(d.samples);
-      // Precisión por clase
-      const rep = d.accuracy_report || {};
-      const CLASS_NAMES = { mine_feet:'Mis Pasos', mine_guns:'Mis Disparos', enemy_feet:'Pasos Ene.', enemy_guns:'Disp. Ene.', airstrike:'Aéreo' };
-      const lines = Object.entries(CLASS_NAMES).filter(([k]) => rep[k]).map(([k, label]) => {
-        const r = rep[k];
-        return `${label}: P=${(r.precision*100).toFixed(0)}% R=${(r.recall*100).toFixed(0)}%`;
-      });
-      if (lines.length) log('Precisión → ' + lines.join(' | '), 'ok');
-    } else {
-      log('Necesitas más muestras (mínimo 5 de cada clase)', 'err');
-    }
-  } catch(e) {
-    log('Error entrenando: ' + e, 'err');
-  }
-}
-
-async function clearSamples() {
-  if (!confirm('¿Borrar todas las muestras y el modelo?')) return;
-  await window.pywebview.api.clear_samples();
-  updateSampleUI({mine_feet:0, mine_guns:0, enemy_feet:0, enemy_guns:0, airstrike:0});
-  log('Muestras borradas');
-}
-
-// ─── Comunidad ────────────────────────────────────────────────────────────
-function _setCommunityStatus(msg, ok) {
-  const el = document.getElementById('communityStatus');
-  if (el) { el.textContent = msg; el.style.color = ok ? 'var(--green)' : 'var(--red)'; }
-}
-
-async function downloadCommunityModel() {
-  const btn = document.getElementById('btnDlModel');
-  btn.disabled = true; btn.textContent = '⏳ Descargando…';
-  log('Descargando modelo comunitario…', 'warn');
-  try {
-    const d = await window.pywebview.api.fetch_community_model();
-    if (d.ok) {
-      _setCommunityStatus(`✓ Modelo comunitario instalado — ${d.community_samples} muestras de ${d.contributors} contribuidor(es)`, true);
-      log(`Modelo comunitario instalado (${d.community_samples} muestras, v${d.version})`, 'ok');
-      pollStatus();
-    } else {
-      _setCommunityStatus('✗ ' + (d.error || 'Error desconocido'), false);
-      log('No se pudo descargar modelo comunitario: ' + d.error, 'err');
-    }
-  } catch(e) {
-    _setCommunityStatus('✗ Error de conexión', false);
-    log('Error: ' + e, 'err');
-  }
-  btn.disabled = false; btn.textContent = '⬇ Descargar modelo comunitario';
-}
-
-async function downloadCommunitySamples() {
-  const btn = document.getElementById('btnDlSamples');
-  btn.disabled = true; btn.textContent = '⏳ Fusionando…';
-  log('Descargando muestras comunitarias…', 'warn');
-  try {
-    const d = await window.pywebview.api.download_community_samples();
-    if (d.ok) {
-      _setCommunityStatus(`✓ +${d.new_samples} muestras nuevas (total: ${d.total})`, true);
-      log(`Muestras fusionadas: +${d.new_samples} nuevas, total ${d.total}`, 'ok');
-      updateSampleUI(d.samples);
-    } else {
-      _setCommunityStatus('✗ ' + (d.error || 'Error'), false);
-      log('Error al fusionar: ' + d.error, 'err');
-    }
-  } catch(e) {
-    _setCommunityStatus('✗ Error de conexión', false);
-    log('Error: ' + e, 'err');
-  }
-  btn.disabled = false; btn.textContent = '⬇ Fusionar muestras comunitarias';
-}
-
-async function publishToCommunity() {
-  if (!confirm('¿Publicar tu modelo como modelo comunitario? Esto lo reemplazará para todos los usuarios.')) return;
-  const btn = document.getElementById('btnPublish');
-  btn.disabled = true; btn.textContent = '⏳ Publicando…';
-  log('Publicando modelo a la comunidad…', 'warn');
-  try {
-    const d = await window.pywebview.api.publish_to_community();
-    if (d.ok) {
-      _setCommunityStatus(`✓ Modelo publicado (${d.sample_count} muestras)`, true);
-      log(`Modelo comunitario actualizado con ${d.sample_count} muestras`, 'ok');
-    } else {
-      _setCommunityStatus('✗ ' + (d.error || 'Error al publicar'), false);
-      log('Error al publicar: ' + (d.error || JSON.stringify(d)), 'err');
-    }
-  } catch(e) {
-    _setCommunityStatus('✗ Error', false);
-    log('Error: ' + e, 'err');
-  }
-  btn.disabled = false; btn.textContent = '⬆ Publicar mi modelo';
-}
-
-async function submitSamples() {
-  const btn = document.getElementById('btnSubmit');
-  btn.disabled = true; btn.textContent = '⏳ Enviando…';
-  log('Enviando muestras a la comunidad…', 'warn');
-  try {
-    const d = await window.pywebview.api.submit_samples();
-    if (d.ok) {
-      if (d.method === 'api') {
-        _setCommunityStatus('✓ Muestras enviadas', true);
-        log('Muestras enviadas: ' + d.issue_url, 'ok');
-      } else {
-        _setCommunityStatus('✓ Abriendo GitHub en el navegador', true);
-        log('Se abrió GitHub en el navegador — adjunta data/samples.json', 'ok');
-      }
-    } else {
-      _setCommunityStatus('✗ ' + (d.error || 'Error'), false);
-      log('Error al enviar: ' + d.error, 'err');
-    }
-  } catch(e) {
-    _setCommunityStatus('✗ Error', false);
-    log('Error: ' + e, 'err');
-  }
-  btn.disabled = false; btn.textContent = '✉ Enviar mis muestras';
-}
-
-// ─── Poll de estado ───────────────────────────────────────────────────────
-async function pollStatus() {
-  try {
-    const d = await window.pywebview.api.get_status();
-    updateSampleUI(d.samples);
-    if (d.running) setRunningState(true);
-    if (d.last_prediction) onPrediction(d.last_prediction, (d.confidence || 0) / 100);
-  } catch(e) {}
-}
-
-function updateSampleUI(samples) {
-  const mf = samples.mine_feet  || 0;
-  const mg = samples.mine_guns  || 0;
-  const ef = samples.enemy_feet || 0;
-  const eg = samples.enemy_guns || 0;
-  const as = samples.airstrike  || 0;
-  const mine  = (samples.mine  || 0) + mf + mg;  // backward compat
-  const enemy = (samples.enemy || 0) + ef + eg;
-  if (document.getElementById('countMineFeet'))  document.getElementById('countMineFeet').textContent  = mf;
-  if (document.getElementById('countMineGuns'))  document.getElementById('countMineGuns').textContent  = mg;
-  if (document.getElementById('countEnemyFeet')) document.getElementById('countEnemyFeet').textContent = ef;
-  if (document.getElementById('countEnemyGuns')) document.getElementById('countEnemyGuns').textContent = eg;
-  if (document.getElementById('countAirstrike')) document.getElementById('countAirstrike').textContent = as;
-  // backward compat with counters on stats panel
-  if (document.getElementById('countMine'))  document.getElementById('countMine').textContent  = mine;
-  if (document.getElementById('countEnemy')) document.getElementById('countEnemy').textContent = enemy;
-  if (document.getElementById('samplesMine'))  document.getElementById('samplesMine').textContent  = mine;
-  if (document.getElementById('samplesEnemy')) document.getElementById('samplesEnemy').textContent = enemy;
-  const trained = samples.trained !== undefined ? samples.trained : false;
-  if (document.getElementById('modelStatus')) document.getElementById('modelStatus').textContent = trained ? '✓ OK' : '–';
-  const total  = mine + enemy + as;
-  const needed = 50;  // 10 por cada una de las 5 clases
-  const pct = Math.min((total / needed) * 100, 100);
-  if (document.getElementById('progressFill')) document.getElementById('progressFill').style.width = pct + '%';
-  if (document.getElementById('progressPct'))  document.getElementById('progressPct').textContent  = Math.round(pct) + '%';
-}
-
-// ─── Log ──────────────────────────────────────────────────────────────────
-function log(msg, type='') {
-  const el = document.getElementById('log');
-  const ts = new Date().toLocaleTimeString();
-  el.innerHTML += `<div class="log-entry ${type}">[${ts}] ${msg}</div>`;
-  el.scrollTop = el.scrollHeight;
-}
-
-// ─── Init ─────────────────────────────────────────────────────────────────
-drawWaveform();
-
-// ─── Navegación entre páginas ─────────────────────────────────────────────────
-const PAGE_TITLES = {
-  home:     '◈ HOME // AUDIO ENGINE',
-  audio:    '◈ AUDIO // REDUCCIÓN DE RUIDO',
-  settings: '⚙ SETTINGS // CONFIGURACIÓN',
-  account:  '◎ ACCOUNT // PERFIL',
-};
-
+// ─── Navigation ─────────────────────────────────────────────────────────────
 function navigate(page) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-  document.getElementById('page-' + page).classList.add('active');
-  document.getElementById('nav-' + page).classList.add('active');
-  document.getElementById('pageTitle').textContent = PAGE_TITLES[page] || page.toUpperCase();
-  if (page === 'settings') refreshSettingsPage();
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const el = document.getElementById('page-' + page);
+  const nav = document.getElementById('nav-' + page);
+  if (el) el.classList.add('active');
+  if (nav) nav.classList.add('active');
+  const titles = { home: '◈ CHANNEL SHAPER', settings: '⚙ SETTINGS' };
+  document.getElementById('pageTitle').textContent = titles[page] || page.toUpperCase();
 }
 
-async function refreshSettingsPage() {
-  try {
-    const d = await window.pywebview.api.get_status();
-    document.getElementById('settingsModelStatus').textContent = d.model_trained ? '✓ OK' : '–';
-    // Copiar lista de compat al panel de settings
-    const src = document.getElementById('compatList');
-    const dst = document.getElementById('compatPanelSettings');
-    if (src && src.innerHTML.trim()) dst.innerHTML = src.innerHTML;
-  } catch(e) {}
+// ─── Log ────────────────────────────────────────────────────────────────────
+function log(msg, cls) {
+  const box = document.getElementById('logBox');
+  const now = new Date().toLocaleTimeString('es', {hour12:false});
+  const div = document.createElement('div');
+  div.className = 'log-entry' + (cls ? ' ' + cls : '');
+  div.textContent = `[${now}] ${msg}`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  // Keep last 50 entries
+  while (box.children.length > 50) box.removeChild(box.firstChild);
 }
 
-// ─── Buscar actualización ────────────────────────────────────────────────
-async function checkForUpdates() {
-  const btn = document.getElementById('updateBtn');
-  const res = document.getElementById('updateResult');
-  btn.disabled = true;
-  btn.textContent = 'COMPROBANDO...';
-  res.className = 'update-result';
-  res.textContent = '';
-  try {
-    const d = await window.pywebview.api.check_for_updates();
-    if (d.error) {
-      res.className = 'update-result show-err';
-      res.textContent = '[ERROR] ' + d.error + '  //  Verifica tu conexión.';
-      btn.disabled = false;
-      btn.textContent = '↻ BUSCAR ACTUALIZACIÓN';
-    } else if (d.up_to_date) {
-      res.className = 'update-result show-ok';
-      res.textContent = '✓ ACTUALIZADO  //  Tienes la última versión: v' + d.current;
-      btn.disabled = true;
-      btn.textContent = '✓ AL DÍA';
-      btn.style.opacity = '0.5';
-    } else {
-      // Nueva versión disponible: abrir página de releases en el navegador del sistema.
-      // No hacemos reemplazo del exe en caliente (AV lo bloquea sin firma de código).
-      const releaseUrl = d.release_url || 'https://github.com/mojotuning/Anki-Audio-boost/releases';
-      res.className = 'update-result show-new';
-      res.innerHTML =
-        '[UPDATE] Nueva versión disponible: <b>v' + d.latest + '</b>  →  v' + d.current + ' instalada<br><br>' +
-        '<button class="btn btn-green" style="padding:6px 18px;font-size:9px;letter-spacing:2px" ' +
-        'onclick="openExternal(\'' + releaseUrl + '\')">⬇ DESCARGAR v' + d.latest + ' ↗</button>' +
-        '<span style="color:var(--textdim);font-family:\'Share Tech Mono\',monospace;font-size:10px;margin-left:14px">' +
-        'Se abre el navegador · descarga el .exe · ejecútalo</span>';
-      btn.disabled = false;
-      btn.textContent = '↻ BUSCAR ACTUALIZACIÓN';
-    }
-  } catch(e) {
-    res.className = 'update-result show-err';
-    res.textContent = '[ERROR] ' + e;
-    btn.disabled = false;
-    btn.textContent = '↻ BUSCAR ACTUALIZACIÓN';
+// ─── Preset cards ───────────────────────────────────────────────────────────
+function renderPresets() {
+  const grid = document.getElementById('presetGrid');
+  grid.innerHTML = '';
+  for (const [key, p] of Object.entries(presets)) {
+    const card = document.createElement('div');
+    card.className = 'preset-card' + (key === state.preset ? ' active' : '');
+    card.dataset.preset = key;
+    card.innerHTML = `
+      <div class="preset-icon">${p.icon}</div>
+      <div class="preset-name">${p.name}</div>
+      <div class="preset-desc">${p.description}</div>
+    `;
+    card.addEventListener('click', () => selectPreset(key));
+    grid.appendChild(card);
   }
 }
 
-// ─── Abrir URL externa ─────────────────────────────────────────────────
-function openExternal(url) {
-  window.pywebview.api.open_url(url);
-  return false;
-}
-
-// ─── Minimizar a bandeja ──────────────────────────────────────────────────
-async function minimizeToTray() {
-  try {
-    await window.pywebview.api.minimize_to_tray();
-  } catch(e) {}
-}
-
-// ─── Bypass EQ ───────────────────────────────────────────────────────────
-async function toggleBypass() {
-  try {
-    const d = await window.pywebview.api.toggle_bypass();
-    const btn = document.getElementById('bypassBtn');
-    if (d.bypass) {
-      btn.textContent = '⊘ BYPASS ON';
-      btn.className = 'btn btn-red';
-      log('BYPASS activado — audio pasa sin procesamiento', 'warn');
-    } else {
-      btn.textContent = '⊘ BYPASS';
-      btn.className = 'btn btn-dim';
-      log('BYPASS desactivado — EQ activo', 'ok');
-    }
-  } catch(e) {}
-}
-
-// ─── Umbral de confianza ──────────────────────────────────────────────────
-let _confThrottleTimer = null;
-function updateConfidenceThreshold(val) {
-  document.getElementById('valConf').textContent = val + '%';
-  clearTimeout(_confThrottleTimer);
-  _confThrottleTimer = setTimeout(async () => {
-    try {
-      await window.pywebview.api.set_confidence_threshold(parseFloat(val) / 100);
-    } catch(e) {}
-  }, 300);
-}
-
-// ─── Etiquetado retroactivo ───────────────────────────────────────────────
-const LABEL_NAMES = {
-  mine_feet: 'Mis Pasos', mine_guns: 'Mis Disparos',
-  enemy_feet: 'Pasos Enemigo', enemy_guns: 'Disparos Enemigo', airstrike: 'Ataque Aéreo'
-};
-async function labelRecent(label) {
-  if (!isRunning) { log('Activa el motor primero', 'warn'); return; }
-  const statusEl = document.getElementById('labelRecentStatus');
-  if (statusEl) statusEl.textContent = '⏳ Etiquetando...';
-  try {
-    const d = await window.pywebview.api.label_recent(label);
-    if (d.ok) {
-      const msg = `✓ +${d.added} muestras → ${LABEL_NAMES[label] || label}`;
-      if (statusEl) statusEl.textContent = msg;
-      log(msg, 'ok');
-      updateSampleUI(d.samples);
-    } else {
-      if (statusEl) statusEl.textContent = '— Sin audio en el buffer';
-    }
-  } catch(e) {
-    if (statusEl) statusEl.textContent = '✗ Error';
+async function selectPreset(name) {
+  const r = await api('apply_preset', name);
+  if (!r) return;
+  if (r.ok) {
+    state.preset = name;
+    state.params = r.params || state.params;
+    state.enabled = r.applied !== false;
+    renderPresets();
+    updateSliders();
+    updateStatus();
+    log('Preset "' + name + '" aplicado', 'ok');
+  } else {
+    log('Error preset: ' + (r.error || ''), 'err');
   }
-  setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
 }
 
-// ─── Perfiles de ganancia ─────────────────────────────────────────────────
-const GAINS_DB_MAP = {
-  enemy_footsteps: { sliderId: 'gainEnemyFeet', labelId: 'valEF' },
-  own_footsteps:   { sliderId: 'gainOwnFeet',   labelId: 'valOF' },
-  own_gunshots:    { sliderId: 'gainOwnGuns',   labelId: 'valOG' },
-  enemy_gunshots:  { sliderId: 'gainGuns',      labelId: 'valG'  },
-  airstrike_vol:   { sliderId: 'gainAirVol',    labelId: 'valAV' },
-  airstrikes:      { sliderId: 'gainAir',       labelId: 'valA'  },
-};
+// ─── Sliders ────────────────────────────────────────────────────────────────
+function renderSliders() {
+  const container = document.getElementById('sliderContainer');
+  container.innerHTML = '';
+  for (const [key, range] of Object.entries(paramRanges)) {
+    const val = state.params[key] !== undefined ? state.params[key] : range.min;
+    const row = document.createElement('div');
+    row.className = 'slider-row';
+    row.innerHTML = `
+      <div class="slider-label">
+        ${range.label}
+        <small>${range.desc}</small>
+      </div>
+      <input type="range" id="slider-${key}"
+        min="${range.min}" max="${range.max}" step="${range.step}"
+        value="${val}">
+      <span class="slider-val" id="val-${key}">${formatVal(val, range.unit)}</span>
+    `;
+    container.appendChild(row);
+    const input = row.querySelector('input');
+    input.addEventListener('input', () => {
+      const v = parseFloat(input.value);
+      document.getElementById('val-' + key).textContent = formatVal(v, range.unit);
+      state.params[key] = v;
+      // Debounce API call
+      clearTimeout(_debounceTimers[key]);
+      _debounceTimers[key] = setTimeout(() => updateParam(key, v), 200);
+    });
+  }
+}
 
+function updateSliders() {
+  for (const [key, range] of Object.entries(paramRanges)) {
+    const slider = document.getElementById('slider-' + key);
+    const valEl = document.getElementById('val-' + key);
+    if (slider && state.params[key] !== undefined) {
+      slider.value = state.params[key];
+      if (valEl) valEl.textContent = formatVal(state.params[key], range.unit);
+    }
+  }
+}
+
+function formatVal(v, unit) {
+  if (unit === 'Hz') return v + ' Hz';
+  const sign = v > 0 ? '+' : '';
+  return sign + v.toFixed(1) + ' ' + unit;
+}
+
+async function updateParam(key, value) {
+  const r = await api('update_param', key, value);
+  if (r && r.ok) {
+    // Preset changed to custom
+    state.preset = 'custom';
+    renderPresets();
+  }
+}
+
+// ─── Apply / Disable ────────────────────────────────────────────────────────
+async function applyConfig() {
+  const r = await api('apply_current');
+  if (r && r.ok) {
+    state.enabled = true;
+    updateStatus();
+    log('Configuración aplicada a EqualizerAPO', 'ok');
+  } else {
+    log('Error al aplicar: ' + (r ? r.error : 'sin respuesta'), 'err');
+  }
+}
+
+async function disableConfig() {
+  const r = await api('disable');
+  if (r && r.ok) {
+    state.enabled = false;
+    updateStatus();
+    log('Procesamiento desactivado', 'warn');
+  } else {
+    log('Error al desactivar: ' + (r ? r.error : ''), 'err');
+  }
+}
+
+// ─── Status updates ─────────────────────────────────────────────────────────
+function updateStatus() {
+  const dotClass = state.enabled ? 'dot active' : 'dot';
+  const text = state.enabled ? 'ACTIVE' : 'OFFLINE';
+  document.getElementById('sidebarDot').className = dotClass;
+  document.getElementById('sidebarStatusText').textContent = text;
+  document.getElementById('topDot').className = dotClass;
+  document.getElementById('topStatusText').textContent = text;
+
+  // Button states
+  document.getElementById('btnApply').style.display = state.apoInstalled ? '' : 'none';
+  document.getElementById('btnDisable').style.display = state.apoInstalled && state.enabled ? '' : 'none';
+}
+
+function updateChain(sw) {
+  const items = {
+    apo: sw.apo,
+    voicemeeter: sw.voicemeeter,
+    vb_cable: sw.vb_cable,
+    hesuvi: sw.hesuvi,
+    reaplugs: sw.reaplugs,
+  };
+  for (const [key, detected] of Object.entries(items)) {
+    const el = document.getElementById('chain-' + key);
+    if (el) {
+      el.classList.toggle('detected', !!detected);
+    }
+  }
+  // APO path in settings
+  if (sw.apo_path) {
+    document.getElementById('apoPathInfo').textContent = sw.apo_path;
+  }
+}
+
+// ─── Profiles ───────────────────────────────────────────────────────────────
 async function saveProfile() {
   const name = document.getElementById('profileName').value.trim();
-  if (!name) { log('Escribe un nombre para el perfil', 'warn'); return; }
-  try {
-    await window.pywebview.api.save_profile(name);
+  if (!name) return;
+  const r = await api('save_profile', name);
+  if (r && r.ok) {
     document.getElementById('profileName').value = '';
-    log(`Perfil guardado: "${name}"`, 'ok');
-    refreshProfiles();
-  } catch(e) { log('Error guardando perfil: ' + e, 'err'); }
+    log('Perfil "' + name + '" guardado', 'ok');
+    loadProfileList();
+  }
+}
+
+async function loadProfileList() {
+  const profiles = await api('list_profiles');
+  if (!profiles) return;
+  const list = document.getElementById('profileList');
+  list.innerHTML = '';
+  for (const name of Object.keys(profiles)) {
+    const chip = document.createElement('div');
+    chip.className = 'profile-chip';
+    chip.innerHTML = `<span onclick="loadProfile('${name}')">${name}</span>
+      <span class="del" onclick="deleteProfile('${name}')">&times;</span>`;
+    list.appendChild(chip);
+  }
 }
 
 async function loadProfile(name) {
-  try {
-    const d = await window.pywebview.api.load_profile(name);
-    if (!d.ok) { log(`Perfil "${name}" no encontrado`, 'warn'); return; }
-    // Actualizar sliders con los nuevos gains
-    for (const [key, { sliderId, labelId }] of Object.entries(GAINS_DB_MAP)) {
-      if (d.gains[key] !== undefined) {
-        const linear = d.gains[key];
-        const db = linear > 0 ? 20 * Math.log10(linear) : -99;
-        const slEl = document.getElementById(sliderId);
-        const lbEl = document.getElementById(labelId);
-        if (slEl) slEl.value = db.toFixed(1);
-        if (lbEl) lbEl.textContent = (db >= 0 ? '+' : '') + db.toFixed(1) + ' dB';
-      }
-    }
-    log(`Perfil cargado: "${name}"`, 'ok');
-  } catch(e) { log('Error cargando perfil: ' + e, 'err'); }
+  const r = await api('load_profile', name);
+  if (r && r.ok) {
+    state.params = r.params || state.params;
+    state.preset = r.preset || 'custom';
+    updateSliders();
+    renderPresets();
+    updateStatus();
+    log('Perfil "' + name + '" cargado', 'ok');
+  }
 }
 
 async function deleteProfile(name) {
-  try {
-    await window.pywebview.api.delete_profile(name);
-    log(`Perfil eliminado: "${name}"`, 'ok');
-    refreshProfiles();
-  } catch(e) {}
+  await api('delete_profile', name);
+  loadProfileList();
+  log('Perfil "' + name + '" eliminado', 'warn');
 }
 
-async function refreshProfiles() {
-  try {
-    const profiles = await window.pywebview.api.list_profiles();
-    const container = document.getElementById('profileList');
-    if (!container) return;
-    const names = Object.keys(profiles);
-    if (names.length === 0) {
-      container.innerHTML = '<span style="font-family:\'Share Tech Mono\',monospace;font-size:10px;color:var(--textdim)">Sin perfiles guardados</span>';
-      return;
-    }
-    container.innerHTML = names.map(n =>
-      `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:3px 8px">
-        <span style="font-family:\'Share Tech Mono\',monospace;font-size:10px;cursor:pointer;color:var(--text)" onclick="loadProfile('${n.replace(/'/g,"\\'")}')">▶ ${n}</span>
-        <span style="font-family:\'Share Tech Mono\',monospace;font-size:10px;cursor:pointer;color:var(--textdim)" onclick="deleteProfile('${n.replace(/'/g,"\\'")}')">✕</span>
-      </span>`
-    ).join('');
-  } catch(e) {}
-}
+// ─── Settings ───────────────────────────────────────────────────────────────
+async function checkUpdates() {
+  const el = document.getElementById('updateResult');
+  el.className = 'update-result';
+  el.textContent = 'Buscando...';
+  el.style.display = 'block';
 
-// ─── Timeline 30s ─────────────────────────────────────────────────────────
-const TIMELINE_COLORS = {
-  mine_feet:  '#ffcc00', mine_guns:  '#ffaa00',
-  enemy_feet: '#ff3366', enemy_guns: '#ff0033',
-  airstrike:  '#ff8800', unknown:    '#1a2e22',
-};
-const TIMELINE_WINDOW = 30;   // segundos
-const _timeline = [];          // [{t, pred}]
-
-function _timelinePush(pred) {
-  const now = Date.now() / 1000;
-  _timeline.push({ t: now, pred });
-  // Descartar entradas más viejas del doble de la ventana
-  const cutoff = now - TIMELINE_WINDOW * 2;
-  while (_timeline.length > 0 && _timeline[0].t < cutoff) _timeline.shift();
-  _drawTimeline();
-}
-
-function _drawTimeline() {
-  const canvas = document.getElementById('timelineCanvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const w = canvas.offsetWidth;
-  canvas.width = w;
-  const h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = '#060d09';
-  ctx.fillRect(0, 0, w, h);
-
-  const now = Date.now() / 1000;
-  const start = now - TIMELINE_WINDOW;
-
-  for (let i = 0; i < _timeline.length - 1; i++) {
-    const a = _timeline[i], b = _timeline[i + 1];
-    const x1 = Math.max(0, ((a.t - start) / TIMELINE_WINDOW) * w);
-    const x2 = Math.min(w, ((b.t - start) / TIMELINE_WINDOW) * w);
-    if (x2 < 0) continue;
-    ctx.fillStyle = TIMELINE_COLORS[a.pred] || '#1a2e22';
-    ctx.fillRect(x1, 0, Math.max(x2 - x1, 1), h);
-  }
-  // Dibujar la última entrada hasta el borde derecho
-  if (_timeline.length > 0) {
-    const last = _timeline[_timeline.length - 1];
-    const x1 = Math.max(0, ((last.t - start) / TIMELINE_WINDOW) * w);
-    ctx.fillStyle = TIMELINE_COLORS[last.pred] || '#1a2e22';
-    ctx.fillRect(x1, 0, w - x1, h);
-  }
-
-  // Leyenda (solo clases presentes en la ventana)
-  const present = new Set(_timeline.filter(e => e.t >= start).map(e => e.pred));
-  const leg = document.getElementById('timelineLegend');
-  if (leg) {
-    leg.innerHTML = [...present].filter(p => p !== 'unknown').map(p =>
-      `<span style="display:inline-flex;align-items:center;gap:3px">
-        <span style="width:8px;height:8px;border-radius:2px;background:${TIMELINE_COLORS[p]||'#333'};display:inline-block"></span>
-        <span style="color:var(--textdim)">${(PRED_LABELS[p]||p).replace('MIS ','').replace(' ENEMIGO',' ENE.')}</span>
-      </span>`
-    ).join('');
-  }
-}
-
-// ─── Autostart ────────────────────────────────────────────────────────────
-async function doAutostart() {
-  log('Reanudando última sesión…', 'warn');
-  try {
-    const d = await window.pywebview.api.autostart();
-    if (d.ok) {
-      isRunning = true;
-      setRunningState(true);
-      log('⚡ Sesión reanudada automáticamente', 'ok');
-      document.getElementById('autostartRow').style.display = 'none';
-    } else {
-      log('No se pudo reanudar: ' + (d.error || 'Error'), 'err');
-    }
-  } catch(e) { log('Error en autostart: ' + e, 'err'); }
-}
-
-window.addEventListener('pywebviewready', async () => {
-  log('Aplicación lista', 'ok');
-  loadDevices();
-  scanCompatibility();
-  pollStatus();
-  setInterval(pollStatus, 2000);
-  // Cargar versión actual desde Python
-  try {
-    const v = await window.pywebview.api.get_version();
-    const tag = 'v' + v.version;
-    const el1 = document.getElementById('topbarVersion');
-    const el2 = document.getElementById('currentVersion');
-    const el3 = document.getElementById('sidebarVersion');
-    if (el1) el1.textContent = tag;
-    if (el2) el2.textContent = tag;
-    if (el3) el3.textContent = tag;
-  } catch(e) {}
-  // Autostart: mostrar botón si hay sesión anterior
-  try {
-    const last = await window.pywebview.api.get_last_devices();
-    if (last && (last.input !== null || last.output !== null)) {
-      document.getElementById('autostartRow').style.display = 'block';
-    }
-  } catch(e) {}
-  // Cargar perfiles
-  refreshProfiles();
-});
-</script>
-</body>
-</html>
-    });
-
-    socket.on('disconnect', () => log('Desconectado del servidor', 'err'));
-
-    socket.on('audio_level', d => {
-      const pct = Math.min(d.level * 800, 100);
-      document.getElementById('levelFill').style.width = pct + '%';
-      const db = d.level > 0 ? (20 * Math.log10(d.level)).toFixed(1) : '-∞';
-      document.getElementById('levelDb').textContent = db + ' dB';
-      levelHistory.push(d.level);
-      levelHistory.shift();
-    });
-
-    socket.on('prediction', d => {
-      onPrediction(d.label, (d.confidence || 0) / 100);
-    });
-
-    socket.on('status', d => log(d.message));
-  } catch(e) {
-    log('No se pudo conectar — ¿Está corriendo server.py?', 'err');
-  }
-}
-
-// ─── Waveform canvas ──────────────────────────────────────────────────────
-function drawWaveform() {
-  const canvas = document.getElementById('waveform');
-  const ctx = canvas.getContext('2d');
-  canvas.width  = canvas.offsetWidth;
-  canvas.height = canvas.offsetHeight;
-  const w = canvas.width, h = canvas.height;
-
-  ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = '#0a120e';
-  ctx.fillRect(0, 0, w, h);
-
-  const step = w / levelHistory.length;
-  ctx.beginPath();
-  ctx.strokeStyle = '#00ff6a';
-  ctx.lineWidth = 1.5;
-  ctx.shadowBlur = 8;
-  ctx.shadowColor = '#00ff6a';
-
-  levelHistory.forEach((v, i) => {
-    const x = i * step;
-    const amp = Math.min(v * 400, 1);
-    const y1 = h/2 - (amp * h/2);
-    const y2 = h/2 + (amp * h/2);
-    if (i === 0) ctx.moveTo(x, h/2);
-    ctx.lineTo(x, y1);
-    ctx.lineTo(x, y2);
-    ctx.lineTo(x, h/2);
-  });
-  ctx.stroke();
-
-  animFrame = requestAnimationFrame(drawWaveform);
-}
-
-// ─── Dispositivos ─────────────────────────────────────────────────────────
-async function loadDevices() {
-  try {
-    const res = await fetch(`${API}/api/devices`);
-    const devs = await res.json();
-
-    const inp = document.getElementById('inputDevice');
-    const out = document.getElementById('outputDevice');
-    inp.innerHTML = '<option value="">-- Selecciona input --</option>';
-    out.innerHTML = '<option value="">-- Selecciona output --</option>';
-
-    devs.forEach(d => {
-      if (d.inputs > 0) {
-        inp.innerHTML += `<option value="${d.id}">[${d.id}] ${d.name}</option>`;
-      }
-      if (d.outputs > 0) {
-        out.innerHTML += `<option value="${d.id}">[${d.id}] ${d.name}</option>`;
-      }
-    });
-    log(`${devs.length} dispositivos detectados`, 'ok');
-  } catch(e) {
-    log('Error cargando dispositivos', 'err');
-  }
-}
-
-// ─── Compatibilidad de software ─────────────────────────────────────────────
-const KNOWN_TAGS = [{k:'vb_cable',label:'VB-Cable'},{k:'voicemeeter',label:'Voicemeter'},{k:'eq_apo',label:'Equalizer APO'}];
-
-async function scanCompatibility() {
-  try {
-    const res  = await fetch(`${API}/api/software_scan`);
-    const data = await res.json();
-    const panel = document.getElementById('compatPanel');
-    const list  = document.getElementById('compatList');
-
-    list.innerHTML = '';
-    let anyFound = false;
-
-    // Mostrar cada pieza de software detectada
-    KNOWN_TAGS.forEach(({k, label}) => {
-      if (data[k]) {
-        anyFound = true;
-        const nameDetail = data.detected.find(s => s.toLowerCase().startsWith(label.toLowerCase())) || label;
-        list.innerHTML += `
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-            <span style="color:var(--green);font-family:'Share Tech Mono',monospace;font-size:11px">[OK]</span>
-            <span style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text)">${nameDetail}</span>
-          </div>`;
-      }
-    });
-
-    if (!anyFound) {
-      list.innerHTML = '<div style="font-family:\'Share Tech Mono\',monospace;font-size:10px;color:var(--yellow)">[!] No se detectó software de audio virtual instalado.<br>Instala VB-Cable para capturar el audio del sistema.</div>';
-    }
-
-    panel.style.display = 'block';
-
-    // Auto-seleccionar el input recomendado si el usuario no eligió nada todavía
-    if (data.suggested_input !== null) {
-      const inp = document.getElementById('inputDevice');
-      if (!inp.value) {
-        inp.value = String(data.suggested_input);
-        log(`Input auto-detectado: ${data.suggested_input_name}`, 'ok');
-      }
-    }
-  } catch(e) {
-    // silenciar — no crítico
-  }
-}
-
-// ─── Engine control ───────────────────────────────────────────────────────
-async function startEngine() {
-  const input  = document.getElementById('inputDevice').value;
-  const output = document.getElementById('outputDevice').value;
-
-  if (!input || !output) {
-    log('Selecciona input y output primero', 'warn'); return;
-  }
-
-  try {
-    const res = await fetch(`${API}/api/start`, {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        input_device:  parseInt(input),
-        output_device: parseInt(output)
-      })
-    });
-    const d = await res.json();
-    if (d.success) {
-      isRunning = true;
-      setRunningState(true);
-      log('Motor de audio ACTIVO', 'ok');
-    } else {
-      log('No se pudo iniciar el motor', 'err');
-    }
-  } catch(e) {
-    log('Error: ' + e.message, 'err');
-  }
-}
-
-async function stopEngine() {
-  await fetch(`${API}/api/stop`, { method: 'POST' });
-  isRunning = false;
-  setRunningState(false);
-  log('Motor detenido');
-}
-
-function setRunningState(running) {
-  document.getElementById('statusDot').className  = 'dot' + (running ? ' active' : '');
-  document.getElementById('statusText').textContent = running ? 'ACTIVO' : 'OFFLINE';
-  document.getElementById('startBtn').disabled = running;
-  document.getElementById('stopBtn').disabled  = !running;
-}
-
-// ─── Ganancias ────────────────────────────────────────────────────────────
-const gainTimeout = {};
-function updateGain(key, val, labelId) {
-  document.getElementById(labelId).textContent = parseFloat(val).toFixed(1) + '×';
-  clearTimeout(gainTimeout[key]);
-  gainTimeout[key] = setTimeout(async () => {
-    try {
-      await fetch(`${API}/api/gains`, {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ [key]: parseFloat(val) })
-      });
-    } catch(e) {}
-  }, 300);
-}
-
-function updateGainDb(key, valDb, labelId) {
-  const db = parseFloat(valDb);
-  const linear = Math.pow(10, db / 20);
-  const sign = db >= 0 ? '+' : '';
-  document.getElementById(labelId).textContent = sign + db.toFixed(1) + ' dB';
-  clearTimeout(gainTimeout[key]);
-  gainTimeout[key] = setTimeout(async () => {
-    try {
-      await fetch(`${API}/api/gains`, {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ [key]: linear })
-      });
-    } catch(e) {}
-  }, 300);
-}
-
-// ─── Entrenamiento ────────────────────────────────────────────────────────
-function toggleTraining(label) {
-  if (trainingActive === label) {
-    stopTraining();
+  const r = await api('check_for_updates');
+  if (!r) { el.className = 'update-result show-err'; el.textContent = 'Error de conexión'; return; }
+  if (r.error) { el.className = 'update-result show-err'; el.textContent = r.error; return; }
+  if (r.up_to_date) {
+    el.className = 'update-result show-ok';
+    el.textContent = '✓ Estás al día — v' + r.latest;
   } else {
-    startTraining(label);
+    el.className = 'update-result show-new';
+    el.innerHTML = '⬆ Nueva versión disponible: v' + r.latest +
+      ' <a href="#" onclick="openURL(\'' + r.release_url + '\');return false;" style="color:var(--yellow);margin-left:12px;">DESCARGAR</a>';
   }
 }
 
-async function startTraining(label) {
-  if (!isRunning) { log('Activa el motor primero', 'warn'); return; }
-
-  trainingActive = label;
-  _syncCardStates(label);
-
-  await fetch(`${API}/api/training/start`, {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ label })
-  });
-
-  const dot = document.getElementById('statusDot');
-  dot.className = 'dot training';
-  document.getElementById('statusText').textContent = 'ENTRENANDO: ' + label.toUpperCase();
-  const names = { mine_feet:'MIS PASOS', mine_guns:'MIS DISPAROS', enemy_feet:'PASOS ENEMIGO', enemy_guns:'DISPAROS ENEMIGO', airstrike:'ATAQUE AÉREO' };
-  log(`Grabando muestras: ${names[label] || label}`, 'warn');
+function openURL(url) {
+  api('open_url', url);
 }
 
-async function stopTraining() {
-  trainingActive = null;
-  _syncCardStates(null);
+function installAPO() {
+  api('install_apo');
+}
 
-  await fetch(`${API}/api/training/stop`, { method: 'POST' });
+// ─── Init ───────────────────────────────────────────────────────────────────
+async function init() {
+  log('Inicializando Warzone Audio Enhancer v2.0...', 'ok');
 
-  if (isRunning) {
-    document.getElementById('statusDot').className = 'dot active';
-    document.getElementById('statusText').textContent = 'ACTIVO';
+  // Version
+  const ver = await api('get_version');
+  if (ver) {
+    document.getElementById('sidebarVersion').textContent = 'v' + ver.version;
+    document.getElementById('versionTag').textContent = 'v' + ver.version;
   }
-  log('Grabación detenida');
-  pollStatus();
+
+  // Param ranges (for slider config)
+  paramRanges = await api('get_param_ranges') || {};
+
+  // Presets
+  presets = await api('get_presets') || {};
+
+  // Full status (APO detection + current state)
+  const status = await api('get_apo_status');
+  if (status) {
+    state.apoInstalled = status.apo;
+    state.enabled = status.enabled;
+    state.preset = status.preset || 'warzone';
+    state.params = status.params || {};
+
+    // Update chain display
+    updateChain(status);
+
+    // Show/hide APO warning
+    document.getElementById('apoWarning').classList.toggle('show', !status.apo);
+    document.getElementById('presetPanel').style.display = status.apo ? '' : 'none';
+
+    if (status.apo) {
+      log('EqualizerAPO detectado: ' + (status.apo_path || 'OK'), 'ok');
+    } else {
+      log('EqualizerAPO NO detectado — instálalo para usar la app', 'err');
+    }
+
+    // Software chain log
+    const sw = ['voicemeeter', 'vb_cable', 'hesuvi', 'reaplugs'];
+    const detected = sw.filter(s => status[s]);
+    if (detected.length > 0) {
+      log('Software: ' + detected.join(', '), 'ok');
+    }
+  }
+
+  // Render UI
+  renderPresets();
+  renderSliders();
+  updateStatus();
+  loadProfileList();
+
+  if (state.enabled) {
+    log('Procesamiento activo — preset: ' + state.preset, 'ok');
+  }
 }
+
+// Wait for pywebview API
+window.addEventListener('pywebviewready', init);
 </script>
 </body>
 </html>

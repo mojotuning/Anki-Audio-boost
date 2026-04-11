@@ -110,21 +110,50 @@ class APOEngine:
         if self.config_dir and (self.config_dir / "HeSuVi").is_dir():
             result["hesuvi"] = True
 
-        # ReaPlugs (buscar DLL en directorios VST comunes)
-        vst_dirs = [
+        # ReaPlugs — buscar en múltiples ubicaciones
+        reaplugs_dirs = [
             Path(r"C:\Program Files\VSTPlugins"),
             Path(r"C:\Program Files\Common Files\VST3"),
+            Path(r"C:\Program Files\Common Files\VST2"),
             Path(r"C:\Program Files (x86)\VSTPlugins"),
+            Path(r"C:\Program Files\REAPER (x64)\Plugins\FX"),
+            Path(r"C:\Program Files\REAPER\Plugins\FX"),
+            Path(r"C:\Program Files (x86)\REAPER\Plugins\FX"),
+            Path(os.path.expandvars(r"%APPDATA%\REAPER\Plugins")),
             Path(os.path.expandvars(r"%USERPROFILE%\VSTPlugins")),
         ]
-        for d in vst_dirs:
-            if d.is_dir():
-                for f in d.glob("reaxcomp*"):
+        # También buscar dentro de APO/Plugins si existe
+        if self.config_dir:
+            reaplugs_dirs.append(self.config_dir / "Plugins")
+            reaplugs_dirs.append(self.config_dir.parent / "VSTPlugins" if self.config_dir.parent else Path("."))
+        for d in reaplugs_dirs:
+            if not d.is_dir():
+                continue
+            # Buscar cualquier DLL de ReaPlugs (reacomp, reaxcomp, reaeq, reafir, etc.)
+            for pattern in ("rea*.dll", "Rea*.dll", "rea*.vst3", "Rea*.vst3"):
+                if any(d.glob(pattern)):
                     result["reaplugs"] = True
                     break
-                for f in d.glob("ReaXcomp*"):
+            if result["reaplugs"]:
+                break
+        # Fallback: registro de REAPER
+        if not result["reaplugs"]:
+            for sub in (r"SOFTWARE\REAPER", r"SOFTWARE\WOW6432Node\REAPER"):
+                try:
+                    k = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, sub)
+                    winreg.CloseKey(k)
                     result["reaplugs"] = True
                     break
+                except OSError:
+                    pass
+            # HKCU también
+            if not result["reaplugs"]:
+                try:
+                    k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"SOFTWARE\REAPER")
+                    winreg.CloseKey(k)
+                    result["reaplugs"] = True
+                except OSError:
+                    pass
 
         return result
 

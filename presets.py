@@ -21,7 +21,7 @@ PRESETS = {
             "gun_db":       -6.0,
             "streak_db":   -12.0,
             "lfe_cut_hz":     80,
-            "ceiling_db":   -8.0,
+            "ceiling_db":   -2.0,
             "clarity_db":    3.0,
         },
     },
@@ -34,7 +34,7 @@ PRESETS = {
             "gun_db":       -4.0,
             "streak_db":    -8.0,
             "lfe_cut_hz":     60,
-            "ceiling_db":   -6.0,
+            "ceiling_db":   -1.0,
             "clarity_db":    4.0,
         },
     },
@@ -47,20 +47,20 @@ PRESETS = {
             "gun_db":        -3.0,
             "streak_db":     -6.0,
             "lfe_cut_hz":     70,
-            "ceiling_db":    -6.0,
+            "ceiling_db":   -1.0,
             "clarity_db":     5.0,
         },
     },
     "flat": {
         "name": "Flat",
         "icon": "📊",
-        "description": "Sin procesamiento — solo LFE cut y ceiling",
+        "description": "Sin procesamiento — solo LFE cut",
         "params": {
             "footstep_db":   0.0,
             "gun_db":        0.0,
             "streak_db":     0.0,
             "lfe_cut_hz":     80,
-            "ceiling_db":    -3.0,
+            "ceiling_db":    0.0,
             "clarity_db":     0.0,
         },
     },
@@ -76,8 +76,8 @@ PARAM_RANGES = {
                     "label": "Streak",    "desc": "<150 Hz · Explosiones"},
     "lfe_cut_hz":  {"min": 20,  "max": 150, "step": 5, "unit": "Hz",
                     "label": "LFE Cut",   "desc": "Sub-graves · Rumble"},
-    "ceiling_db":  {"min": -20, "max": 0,  "step": 0.5, "unit": "dB",
-                    "label": "Ceiling",   "desc": "Nivel máximo de salida"},
+    "ceiling_db":  {"min": -12, "max": 0,  "step": 0.5, "unit": "dB",
+                    "label": "Ceiling",   "desc": "Headroom extra · Anti-clip"},
     "clarity_db":  {"min": -6,  "max": 10, "step": 0.5, "unit": "dB",
                     "label": "Clarity",   "desc": ">6 kHz · Presencia"},
 }
@@ -91,9 +91,20 @@ def params_to_apo_config(params: dict, preset_name: str = "Custom") -> str:
         "",
     ]
 
-    # Preamp / ceiling
-    ceiling = params.get("ceiling_db", -6.0)
-    lines.append(f"Preamp: {ceiling:.1f} dB")
+    # Preamp: auto-calculado para prevenir clipping
+    # Solo compensa la MITAD del boost máximo — así los pasos realmente
+    # se escuchan más fuerte (no solo "igual" mientras todo lo demás baja).
+    # El ceiling_db da headroom adicional (negativo = más protección).
+    foot = params.get("footstep_db", 0.0)
+    clarity = params.get("clarity_db", 0.0)
+    max_boost = max(foot, clarity, 0.0)  # solo boosts positivos
+    ceiling = params.get("ceiling_db", 0.0)
+    # Compensar solo la mitad del boost: los pasos suben ~50% del valor
+    # y el clipping se evita porque el contenido rara vez llega a 0dBFS
+    preamp = -(max_boost * 0.5) + ceiling
+    preamp = min(preamp, 0.0)
+    lines.append(f"Preamp: {preamp:.1f} dB")
+    lines.append(f"# Auto-preamp: -{max_boost*0.5:.1f} (50% anti-clip) + {ceiling:.1f} (ceiling) = {preamp:.1f}")
     lines.append("")
 
     # 1. HPF — LFE Cut
@@ -111,7 +122,6 @@ def params_to_apo_config(params: dict, preset_name: str = "Custom") -> str:
         lines.append("")
 
     # 3. Footstep boost (curva de 3 bandas para cobertura natural)
-    foot = params.get("footstep_db", 0.0)
     if abs(foot) >= 0.5:
         lo = foot * 0.50    # 400 Hz: base del paso
         mid = foot           # 1000 Hz: cuerpo principal del paso
@@ -132,7 +142,6 @@ def params_to_apo_config(params: dict, preset_name: str = "Custom") -> str:
         lines.append("")
 
     # 5. Clarity / presence
-    clarity = params.get("clarity_db", 0.0)
     if abs(clarity) >= 0.5:
         lines.append(f"Filter: ON HS Fc 7000 Hz Gain {clarity:.1f} dB Q 0.71")
         lines.append(f"# Clarity — presencia y detalle en agudos")

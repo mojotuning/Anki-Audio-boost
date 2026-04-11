@@ -91,60 +91,56 @@ def params_to_apo_config(params: dict, preset_name: str = "Custom") -> str:
         "",
     ]
 
-    # Preamp: auto-calculado para prevenir clipping
-    # Solo compensa la MITAD del boost máximo — así los pasos realmente
-    # se escuchan más fuerte (no solo "igual" mientras todo lo demás baja).
-    # El ceiling_db da headroom adicional (negativo = más protección).
     foot = params.get("footstep_db", 0.0)
+    gun = params.get("gun_db", 0.0)
+    streak = params.get("streak_db", 0.0)
     clarity = params.get("clarity_db", 0.0)
-    max_boost = max(foot, clarity, 0.0)  # solo boosts positivos
     ceiling = params.get("ceiling_db", 0.0)
-    # Compensar solo la mitad del boost: los pasos suben ~50% del valor
-    # y el clipping se evita porque el contenido rara vez llega a 0dBFS
-    preamp = -(max_boost * 0.5) + ceiling
+
+    # ── Preamp ────────────────────────────────────────────────────────────
+    # Compensación MÍNIMA: solo 25% del boost máximo.
+    # El audio de juegos rara vez está a 0 dBFS (-6 a -12 dBFS típico),
+    # así que podemos permitir boosts grandes sin clipping real.
+    # El slider "ceiling" da control manual al usuario.
+    max_boost = max(foot, clarity, 0.0)
+    preamp = -(max_boost * 0.25) + ceiling
     preamp = min(preamp, 0.0)
     lines.append(f"Preamp: {preamp:.1f} dB")
-    lines.append(f"# Auto-preamp: -{max_boost*0.5:.1f} (50% anti-clip) + {ceiling:.1f} (ceiling) = {preamp:.1f}")
     lines.append("")
 
-    # 1. HPF — LFE Cut
+    # ── 1. HPF — LFE Cut ─────────────────────────────────────────────────
     lfe = params.get("lfe_cut_hz", 80)
     if lfe > 20:
         lines.append(f"Filter: ON HP Fc {lfe} Hz Q 0.707")
-        lines.append(f"# LFE Cut — elimina rumble de explosiones por debajo de {lfe} Hz")
         lines.append("")
 
-    # 2. Streak/Explosion reduction (Low Shelf)
-    streak = params.get("streak_db", 0.0)
+    # ── 2. Streak/Explosion cut (Low Shelf <200 Hz) ──────────────────────
     if abs(streak) >= 0.5:
-        lines.append(f"Filter: ON LS Fc 150 Hz Gain {streak:.1f} dB Q 0.71")
-        lines.append(f"# Streak — atenúa killstreaks y explosiones")
+        lines.append(f"Filter: ON LS Fc 200 Hz Gain {streak:.1f} dB Q 0.50")
         lines.append("")
 
-    # 3. Footstep boost (curva de 3 bandas para cobertura natural)
+    # ── 3. Footstep boost ─────────────────────────────────────────────────
+    # Estrategia: 1 filtro ANCHO (low Q) centrado en 800 Hz que cubre
+    # todo el rango de pasos (300–2000 Hz), más un segundo filtro para
+    # el "click" de contacto del paso (2000–3000 Hz).
+    # Q bajo = ancho de banda grande = los pasos suben EN TODA la banda.
     if abs(foot) >= 0.5:
-        lo = foot * 0.50    # 400 Hz: base del paso
-        mid = foot           # 1000 Hz: cuerpo principal del paso
-        hi = foot * 0.35    # 2500 Hz: detalle/ataque del paso
-        lines.append(f"Filter: ON PK Fc 400 Hz Gain {lo:.1f} dB Q 0.80")
-        lines.append(f"# Footstep low — base del paso")
-        lines.append(f"Filter: ON PK Fc 1000 Hz Gain {mid:.1f} dB Q 0.90")
-        lines.append(f"# Footstep mid — cuerpo principal (+{foot:.1f} dB)")
-        lines.append(f"Filter: ON PK Fc 2500 Hz Gain {hi:.1f} dB Q 1.20")
-        lines.append(f"# Footstep detail — ataque y claridad")
+        # Filtro principal: 800 Hz, Q=0.40 → cubre ~300–2000 Hz
+        lines.append(f"Filter: ON PK Fc 800 Hz Gain {foot:.1f} dB Q 0.40")
+        # Detalle de paso: 2500 Hz, Q=0.60 → impacto y textura
+        hi = foot * 0.40
+        lines.append(f"Filter: ON PK Fc 2500 Hz Gain {hi:.1f} dB Q 0.60")
         lines.append("")
 
-    # 4. Gun reduction
-    gun = params.get("gun_db", 0.0)
+    # ── 4. Gun reduction ─────────────────────────────────────────────────
+    # Filtro ancho centrado en 3500 Hz para cubrir 2–6 kHz (disparos)
     if abs(gun) >= 0.5:
-        lines.append(f"Filter: ON PK Fc 4000 Hz Gain {gun:.1f} dB Q 1.00")
-        lines.append(f"# Own Gun — reduce tus propios disparos")
+        lines.append(f"Filter: ON PK Fc 3500 Hz Gain {gun:.1f} dB Q 0.50")
         lines.append("")
 
-    # 5. Clarity / presence
+    # ── 5. Clarity / presence ────────────────────────────────────────────
     if abs(clarity) >= 0.5:
-        lines.append(f"Filter: ON HS Fc 7000 Hz Gain {clarity:.1f} dB Q 0.71")
-        lines.append(f"# Clarity — presencia y detalle en agudos")
+        lines.append(f"Filter: ON HS Fc 6000 Hz Gain {clarity:.1f} dB Q 0.71")
         lines.append("")
 
     return "\n".join(lines)

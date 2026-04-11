@@ -23,7 +23,7 @@ import webview
 # ─── Ventana global ──────────────────────────────────────────────────────────
 _window = None
 
-VERSION = '2.1.0'
+VERSION = '3.0.0'
 
 
 def _push_js(call: str):

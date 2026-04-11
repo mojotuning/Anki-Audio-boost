@@ -277,7 +277,10 @@ class APOEngine:
         if name not in profiles:
             return {"ok": False, "error": f"Perfil '{name}' no existe"}
         p = profiles[name]
-        self.params = dict(p["params"])
+        # Merge with current preset defaults so old profiles (missing new keys
+        # like "compression") get sane defaults instead of crashing.
+        base = PRESETS.get(self.active_preset, PRESETS["warzone"])["params"]
+        self.params = {**base, **{k: v for k, v in p["params"].items() if k in base}}
         self.active_preset = p.get("preset", "custom")
         self._save_state()
         return {"ok": True, "params": self.params, "preset": self.active_preset}

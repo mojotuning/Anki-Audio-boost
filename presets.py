@@ -10,8 +10,8 @@ Cambio de arquitectura:
 """
 
 # Parámetros ajustables por el usuario (UI sliders):
-#   footstep_db  : Boost en zona de pasos (400–1200 Hz), dB
-#   gun_db       : Cut en zona de disparos (2500–5000 Hz), dB
+#   footstep_db  : Boost en zona de pasos (1.2–3.5 kHz), dB
+#   gun_db       : Cut en zona de disparos (body 400–900 Hz + crack 4.5–6 kHz), dB
 #   streak_db    : Cut progresivo sub-300 Hz, dB
 #   lfe_cut_hz   : Frecuencia de corte del HPF, Hz
 #   ceiling_db   : Headroom / limiter threshold, dB
@@ -80,9 +80,9 @@ PRESETS = {
 # Rango de cada slider para la UI
 PARAM_RANGES = {
     "footstep_db":  {"min": -6,  "max": 20, "step": 0.5, "unit": "dB",
-                     "label": "Footstep",     "desc": "400–1200 Hz boost"},
+                     "label": "Footstep",     "desc": "1.2–3.5 kHz boost (crunch/textura)"},
     "gun_db":       {"min": -18, "max": 6,  "step": 0.5, "unit": "dB",
-                     "label": "Gun Cut",      "desc": "2.5–5 kHz cut"},
+                     "label": "Gun Cut",      "desc": "Boom 400–900 Hz + Crack 4.5–6 kHz"},
     "streak_db":    {"min": -20, "max": 0,  "step": 0.5, "unit": "dB",
                      "label": "Streak",       "desc": "<300 Hz cut"},
     "lfe_cut_hz":   {"min": 20,  "max": 150, "step": 5, "unit": "Hz",
@@ -90,7 +90,7 @@ PARAM_RANGES = {
     "ceiling_db":   {"min": -12, "max": 0,  "step": 0.5, "unit": "dB",
                      "label": "Ceiling",      "desc": "Limiter threshold"},
     "clarity_db":   {"min": -6,  "max": 10, "step": 0.5, "unit": "dB",
-                     "label": "Clarity",      "desc": ">6 kHz presencia"},
+                     "label": "Clarity",      "desc": ">7 kHz presencia"},
     "compression":  {"min": 0,   "max": 100, "step": 5, "unit": "%",
                      "label": "Compression",  "desc": "Limiter intensity"},
 }
@@ -190,29 +190,35 @@ def params_to_apo_config(params: dict, preset_name: str = "Custom") -> str:
         lines.append(f"Filter: ON PK Fc 200 Hz Gain {streak * 0.4 + 0.0:.1f} dB Q 0.7")
         lines.append("")
 
-    # ── FOOTSTEP BOOST (400–1200 Hz) ─────────────────────────────────────
+    # ── FOOTSTEP BOOST (1.2–3.5 kHz) — crunch/textura real de pasos ─────
     if foot != 0.0:
-        lines.append(f"# ── Footstep boost (400–1200 Hz) ──")
-        lines.append(f"Filter: ON PK Fc 450 Hz Gain {foot * 0.5 + 0.0:.1f} dB Q 1.2")
-        lines.append(f"Filter: ON PK Fc 650 Hz Gain {foot * 1.0 + 0.0:.1f} dB Q 1.4")
-        lines.append(f"Filter: ON PK Fc 900 Hz Gain {foot * 0.8 + 0.0:.1f} dB Q 1.3")
-        lines.append(f"Filter: ON PK Fc 1100 Hz Gain {foot * 0.3 + 0.0:.1f} dB Q 1.5")
+        lines.append(f"# ── Footstep boost (1.2–3.5 kHz) ──")
+        lines.append(f"Filter: ON PK Fc 1300 Hz Gain {foot * 0.5:.1f} dB Q 1.8")
+        lines.append(f"Filter: ON PK Fc 1800 Hz Gain {foot * 0.8:.1f} dB Q 2.0")
+        lines.append(f"Filter: ON PK Fc 2400 Hz Gain {foot * 1.0:.1f} dB Q 2.0")
+        lines.append(f"Filter: ON PK Fc 3200 Hz Gain {foot * 0.5:.1f} dB Q 1.5")
         lines.append("")
 
-    # ── GUN CUT (2.5–5 kHz) ──────────────────────────────────────────────
+    # ── GUN CUT — body boom (400–900 Hz) + crack (4.5–6 kHz) ─────────────
+    #    Deja la zona de pasos (1.2–3.5 kHz) completamente libre
     if gun != 0.0:
-        lines.append(f"# ── Gun cut (2.5–5 kHz) ──")
-        lines.append(f"Filter: ON PK Fc 2800 Hz Gain {gun * 0.6 + 0.0:.1f} dB Q 2.5")
-        lines.append(f"Filter: ON PK Fc 3500 Hz Gain {gun * 1.0 + 0.0:.1f} dB Q 2.0")
-        lines.append(f"Filter: ON PK Fc 4200 Hz Gain {gun * 0.7 + 0.0:.1f} dB Q 2.5")
+        lines.append(f"# ── Gun body cut (400–900 Hz) ──")
+        lines.append(f"Filter: ON PK Fc 450 Hz Gain {gun * 0.7:.1f} dB Q 1.0")
+        lines.append(f"Filter: ON PK Fc 700 Hz Gain {gun * 1.0:.1f} dB Q 1.2")
+        lines.append(f"Filter: ON PK Fc 900 Hz Gain {gun * 0.5:.1f} dB Q 1.5")
+        lines.append(f"")
+        lines.append(f"# ── Gun crack cut (4.5–6 kHz) ──")
+        lines.append(f"Filter: ON PK Fc 4500 Hz Gain {gun * 0.8:.1f} dB Q 2.0")
+        lines.append(f"Filter: ON PK Fc 5500 Hz Gain {gun * 1.0:.1f} dB Q 2.0")
+        lines.append(f"Filter: ON PK Fc 6200 Hz Gain {gun * 0.5:.1f} dB Q 2.5")
         lines.append("")
 
-    # ── CLARITY (>6 kHz) ─────────────────────────────────────────────────
+    # ── CLARITY (>7 kHz) ─────────────────────────────────────────────────
     if clarity != 0.0:
-        lines.append(f"# ── Clarity (>6 kHz) ──")
-        lines.append(f"Filter: ON PK Fc 6500 Hz Gain {clarity * 0.5 + 0.0:.1f} dB Q 1.0")
-        lines.append(f"Filter: ON PK Fc 9000 Hz Gain {clarity * 1.0 + 0.0:.1f} dB Q 0.8")
-        lines.append(f"Filter: ON PK Fc 12000 Hz Gain {clarity * 0.5 + 0.0:.1f} dB Q 0.7")
+        lines.append(f"# ── Clarity (>7 kHz) ──")
+        lines.append(f"Filter: ON PK Fc 7500 Hz Gain {clarity * 0.5:.1f} dB Q 1.0")
+        lines.append(f"Filter: ON PK Fc 10000 Hz Gain {clarity * 1.0:.1f} dB Q 0.8")
+        lines.append(f"Filter: ON PK Fc 13000 Hz Gain {clarity * 0.5:.1f} dB Q 0.7")
         lines.append("")
 
     # ── BRICKWALL LIMITER ────────────────────────────────────────────────

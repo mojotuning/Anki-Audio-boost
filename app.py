@@ -23,7 +23,7 @@ import webview
 # ─── Ventana global ──────────────────────────────────────────────────────────
 _window = None
 
-VERSION = '3.3.0'
+VERSION = '4.0.0'
 
 
 def _push_js(call: str):
@@ -48,6 +48,43 @@ class Api:
         sw["preset"] = engine.active_preset
         sw["params"] = dict(engine.params)
         return sw
+
+    def get_diagnostics(self):
+        """Diagnóstico completo — muestra qué archivos está cargando APO."""
+        result = {
+            'apo_path':        str(engine.apo_path) if engine.apo_path else None,
+            'config_dir':      str(engine.config_dir) if engine.config_dir else None,
+            'config_txt':      None,
+            'stage_files':     {},
+            'reaplugs_found':  None,
+            'reaxcomp_found':  None,
+            'reajs_found':     None,
+        }
+
+        if engine.config_dir:
+            cfg = engine.config_dir / 'config.txt'
+            if cfg.exists():
+                result['config_txt'] = cfg.read_text(encoding='utf-8', errors='replace')
+
+        # Stage files content
+        from presets import STAGE_FILES as _SF
+        if engine.our_dir and engine.our_dir.is_dir():
+            for fname in _SF:
+                p = engine.our_dir / fname
+                result['stage_files'][fname] = (
+                    p.read_text(encoding='utf-8', errors='replace') if p.exists() else None
+                )
+        else:
+            result['stage_files'] = {f: None for f in _SF}
+
+        # DLL checks
+        from pathlib import Path as _Path
+        from presets import _find_reajs_path, _find_reaxcomp_path, find_reaplugs_path
+        result['reaxcomp_found'] = _Path(_find_reaxcomp_path()).exists()
+        result['reacomp_found']  = _Path(find_reaplugs_path()).exists()
+        result['reajs_found']    = _Path(_find_reajs_path()).exists()
+
+        return result
 
     def get_presets(self):
         result = {}
@@ -163,26 +200,29 @@ class Api:
         sw = engine.detect_software()
         leq_on = self._is_leq_enabled()
         return {
-            'vb_cable':    {'installed': sw['vb_cable'],    'name': 'VB-Audio Hi-Fi Cable', 'desc': 'Dispositivo virtual 7.1 surround', 'leq': leq_on},
-            'voicemeeter': {'installed': sw['voicemeeter'], 'name': 'Voicemeeter',          'desc': 'Mixer / router de audio'},
-            'apo':         {'installed': sw['apo'],         'name': 'EqualizerAPO',         'desc': 'Motor de procesamiento de audio'},
-            'hesuvi':      {'installed': sw['hesuvi'],      'name': 'HeSuVi',               'desc': '7.1 surround → binaural para audífonos'},
-            'reaplugs':    {'installed': sw['reaplugs'],    'name': 'ReaPlugs',             'desc': 'VST plugins (limiter brickwall)'},
+            'vb_cable':      {'installed': sw['vb_cable'],    'name': 'VB-Audio Hi-Fi Cable', 'desc': 'Dispositivo virtual 7.1 surround', 'leq': leq_on},
+            'voicemeeter':   {'installed': sw['voicemeeter'], 'name': 'Voicemeeter',          'desc': 'Mixer / router de audio (obligatorio)'},
+            'apo':           {'installed': sw['apo'],         'name': 'EqualizerAPO',         'desc': 'Motor de procesamiento de audio'},
+            'reaplugs':      {'installed': sw['reaplugs'],    'name': 'ReaPlugs',             'desc': 'VST plugins — Spatial Engine + compresores + limiter'},
+            'windows_sonic': {'installed': True,              'name': 'Windows Sonic',        'desc': 'Binaural 7.1→estéreo nativo de Windows — activar en propiedades del dispositivo'},
         }
 
     def install_dependency(self, dep_id):
         """Descarga e instala una dependencia. Retorna progreso."""
 
         urls = {
-            'vb_cable':    'https://download.vb-audio.com/Download_CABLE/HiFiCableAudioDriver64.zip',
-            'voicemeeter': 'https://download.vb-audio.com/Download_CABLE/VoicemeeterSetup.exe',
-            'apo':         'https://sourceforge.net/projects/equalizerapo/files/latest/download',
-            'hesuvi':      'https://sourceforge.net/projects/hesuvi/files/latest/download',
-            'reaplugs':    'https://www.reaper.fm/reaplugs/reaplugs239_x64-install.exe',
+            'vb_cable':      'https://download.vb-audio.com/Download_CABLE/HiFiCableAudioDriver64.zip',
+            'voicemeeter':   'https://download.vb-audio.com/Download_CABLE/VoicemeeterSetup.exe',
+            'apo':           'https://sourceforge.net/projects/equalizerapo/files/latest/download',
+            'reaplugs':      'https://www.reaper.fm/reaplugs/reaplugs239_x64-install.exe',
+            'windows_sonic': None,
         }
 
         if dep_id not in urls:
             return {'ok': False, 'error': f'Dependencia "{dep_id}" no reconocida'}
+
+        if dep_id == 'windows_sonic':
+            return self.open_sound_panel()
 
         url = urls[dep_id]
 
@@ -265,16 +305,26 @@ class Api:
         """Abre la página de descarga manual de una dependencia."""
         import webbrowser
         pages = {
-            'vb_cable':    'https://vb-audio.com/Cable/',
-            'voicemeeter': 'https://vb-audio.com/Voicemeeter/',
-            'apo':         'https://sourceforge.net/projects/equalizerapo/',
-            'hesuvi':      'https://sourceforge.net/projects/hesuvi/',
-            'reaplugs':    'https://www.reaper.fm/reaplugs/',
+            'vb_cable':      'https://vb-audio.com/Cable/',
+            'voicemeeter':   'https://vb-audio.com/Voicemeeter/',
+            'apo':           'https://sourceforge.net/projects/equalizerapo/',
+            'reaplugs':      'https://www.reaper.fm/reaplugs/',
+            'windows_sonic': None,
         }
+        if dep_id == 'windows_sonic':
+            return self.open_sound_panel()
         if dep_id in pages:
             webbrowser.open(pages[dep_id])
             return {'ok': True}
         return {'ok': False}
+
+    def open_sound_panel(self):
+        """Abre las Propiedades de sonido de Windows para activar Windows Sonic."""
+        try:
+            _subprocess.Popen(['rundll32.exe', 'shell32.dll,Control_RunDLL', 'mmsys.cpl,,0'])
+            return {'ok': True, 'message': 'Abierto panel de sonido. Selecciona el dispositivo → Propiedades espaciales → Windows Sonic for Headphones'}
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
 
     # ─── Loudness Equalization (LEQ) toggle ───────────────────────────────
 

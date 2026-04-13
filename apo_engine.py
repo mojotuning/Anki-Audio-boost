@@ -9,11 +9,12 @@ import sys
 import winreg
 from pathlib import Path
 
-from presets import PRESETS, params_to_apo_config
+from presets import PRESETS, STAGE_FILES, build_stage_files
 
-# Nombre del archivo que escribimos dentro de la carpeta config de APO
-_OUR_CONFIG = "warzone_enhancer.txt"
-_INCLUDE_LINE = f"Include: {_OUR_CONFIG}"
+# Subcarpeta y marcadores de bloque en config.txt
+_OUR_SUBDIR   = "WarzoneAE"
+_BLOCK_START  = "# === WarzoneAE BEGIN ==="
+_BLOCK_END    = "# === WarzoneAE END ==="
 
 
 def _get_data_dir() -> Path:
@@ -32,6 +33,11 @@ class APOEngine:
     def __init__(self):
         self.apo_path: Path | None = self._find_apo()
         self.config_dir: Path | None = self.apo_path / "config" if self.apo_path else None
+
+    @property
+    def our_dir(self) -> Path | None:
+        """Ruta a la subcarpeta WarzoneAE dentro del config de APO."""
+        return self.config_dir / _OUR_SUBDIR if self.config_dir else None
         self.enabled = False
         self.active_preset: str = "warzone"
         self.params: dict = dict(PRESETS["warzone"]["params"])
@@ -73,8 +79,9 @@ class APOEngine:
             "apo_path": str(self.apo_path) if self.apo_path else None,
             "voicemeeter": False,
             "vb_cable": False,
-            "hesuvi": False,
             "reaplugs": False,
+            "reajs": False,
+            "stages": {},
         }
 
         # Voicemeeter
@@ -106,9 +113,17 @@ class APOEngine:
             except OSError:
                 pass
 
-        # HeSuVi (vive dentro de APO)
-        if self.config_dir and (self.config_dir / "HeSuVi").is_dir():
-            result["hesuvi"] = True
+        # reajs.dll (Spatial Engine — requerido para 01_spatial.txt)
+        from presets import _find_reajs_path
+        result["reajs"] = Path(_find_reajs_path()).exists()
+
+        # Stage files: verificar si los 5 archivos de WarzoneAE existen
+        result["stages"] = {}
+        if self.our_dir:
+            for f in STAGE_FILES:
+                result["stages"][f] = (self.our_dir / f).exists()
+        else:
+            result["stages"] = {f: False for f in STAGE_FILES}
 
         # ReaPlugs — buscar en múltiples ubicaciones y variantes de nombre
         # Paso 1: buscar carpetas que contengan "reaplug" en su nombre
@@ -176,16 +191,23 @@ class APOEngine:
     # ─── Aplicar / Desactivar ─────────────────────────────────────────────
 
     def apply(self) -> dict:
-        """Escribe la configuración actual a EqualizerAPO."""
+        """Escribe los 5 archivos de stage a WarzoneAE/ dentro del config de APO."""
         if not self.is_apo_installed():
-            return {"ok": False, "error": "EqualizerAPO no está instalado"}
+            return {"ok": False, "error": "EqualizerAPO no esta instalado"}
 
         try:
-            preset_name = PRESETS.get(self.active_preset, {}).get("name", "Custom")
-            config_text = params_to_apo_config(self.params, preset_name)
-            config_file = self.config_dir / _OUR_CONFIG
-            config_file.write_text(config_text, encoding="utf-8")
-            self._ensure_include()
+            preset_info = PRESETS.get(self.active_preset, PRESETS["warzone"])
+            preset_name = preset_info.get("name", "Custom")
+            spatial_variant = preset_info.get("_spatial_variant", "competitive")
+
+            our = self.our_dir
+            our.mkdir(parents=True, exist_ok=True)
+
+            stage_files = build_stage_files(self.params, preset_name, spatial_variant)
+            for fname, content in stage_files.items():
+                (our / fname).write_text(content, encoding="utf-8")
+
+            self._ensure_includes()
             self.enabled = True
             self._save_state()
             return {"ok": True}
@@ -193,43 +215,62 @@ class APOEngine:
             return {"ok": False, "error": str(e)}
 
     def disable(self) -> dict:
-        """Desactiva el procesamiento escribiendo un config vacío."""
+        """Desactiva el procesamiento escribiendo comentarios de bypass en los 5 archivos."""
         if not self.is_apo_installed():
-            return {"ok": False, "error": "EqualizerAPO no está instalado"}
+            return {"ok": False, "error": "EqualizerAPO no esta instalado"}
 
         try:
-            config_file = self.config_dir / _OUR_CONFIG
-            config_file.write_text(
-                "# WarzoneAudioEnhancer — DESACTIVADO\n"
-                "# Activa desde la app para aplicar filtros\n",
-                encoding="utf-8")
+            our = self.our_dir
+            if our and our.is_dir():
+                bypass_text = (
+                    "# WarzoneAudioEnhancer — DESACTIVADO\n"
+                    "# Channel: all\n"
+                )
+                for fname in STAGE_FILES:
+                    (our / fname).write_text(bypass_text, encoding="utf-8")
             self.enabled = False
             self._save_state()
             return {"ok": True}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
-    def _ensure_include(self):
-        """Asegura que APO incluya nuestro archivo en su config principal."""
+    def _ensure_includes(self):
+        """Inserta/reemplaza el bloque WarzoneAE en config.txt de APO."""
         main_config = self.config_dir / "config.txt"
+
+        include_lines = []
+        for fname in STAGE_FILES:
+            include_lines.append(f"Include: {_OUR_SUBDIR}\\{fname}")
+
+        block = (
+            f"{_BLOCK_START}\n"
+            + "\n".join(include_lines)
+            + f"\n{_BLOCK_END}\n"
+        )
+
         if not main_config.exists():
-            main_config.write_text(f"{_INCLUDE_LINE}\n", encoding="utf-8")
+            main_config.write_text(block, encoding="utf-8")
             return
 
         content = main_config.read_text(encoding="utf-8")
-        if _INCLUDE_LINE in content:
+
+        # Replace existing block if present
+        if _BLOCK_START in content and _BLOCK_END in content:
+            import re as _re
+            content = _re.sub(
+                rf"{_re.escape(_BLOCK_START)}.*?{_re.escape(_BLOCK_END)}\n?",
+                block,
+                content,
+                flags=_re.DOTALL,
+            )
+            main_config.write_text(content, encoding="utf-8")
             return
 
-        # Insertar ANTES de HeSuVi si existe, al final si no
-        lines = content.splitlines()
-        insert_idx = len(lines)
-        for i, line in enumerate(lines):
-            if "HeSuVi" in line and "Include" in line:
-                insert_idx = i
-                break
-
-        lines.insert(insert_idx, _INCLUDE_LINE)
-        main_config.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        # No existing block — append at the end
+        if not content.endswith("\n"):
+            content += "\n"
+        content += block
+        main_config.write_text(content, encoding="utf-8")
 
     # ─── Parámetros ───────────────────────────────────────────────────────
 

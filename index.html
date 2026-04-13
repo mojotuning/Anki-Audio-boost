@@ -514,9 +514,9 @@
               <span class="chain-dot"></span>
               VB-Cable
             </div>
-            <div class="chain-item" id="chain-hesuvi">
+            <div class="chain-item" id="chain-reajs">
               <span class="chain-dot"></span>
-              HeSuVi
+              Spatial Engine
             </div>
             <div class="chain-item" id="chain-reaplugs">
               <span class="chain-dot"></span>
@@ -583,29 +583,28 @@
             </div>
           </div>
 
-          <div class="setup-item" id="setup-hesuvi">
-            <div class="setup-status-icon" id="setup-icon-hesuvi">❌</div>
-            <div class="setup-info">
-              <div class="setup-name">4. HeSuVi</div>
-              <div class="setup-desc">7.1 surround → estéreo binaural para audífonos</div>
-              <div class="setup-status-text" id="setup-text-hesuvi">No instalado</div>
-            </div>
-            <div class="setup-actions">
-              <button class="btn btn-green" onclick="installDep('hesuvi')">INSTALAR</button>
-              <button class="btn btn-dim" onclick="openDepPage('hesuvi')">WEB</button>
-            </div>
-          </div>
-
           <div class="setup-item" id="setup-reaplugs">
             <div class="setup-status-icon" id="setup-icon-reaplugs">❌</div>
             <div class="setup-info">
-              <div class="setup-name">5. ReaPlugs</div>
-              <div class="setup-desc">VST plugins — limiter brickwall para proteger oídos</div>
+              <div class="setup-name">4. ReaPlugs</div>
+              <div class="setup-desc">VST plugins — Spatial Engine + compresores + limiter brickwall</div>
               <div class="setup-status-text" id="setup-text-reaplugs">No instalado</div>
             </div>
             <div class="setup-actions">
               <button class="btn btn-green" onclick="installDep('reaplugs')">INSTALAR</button>
               <button class="btn btn-dim" onclick="openDepPage('reaplugs')">WEB</button>
+            </div>
+          </div>
+
+          <div class="setup-item" id="setup-windows_sonic">
+            <div class="setup-status-icon" id="setup-icon-windows_sonic">⚠️</div>
+            <div class="setup-info">
+              <div class="setup-name">5. Windows Sonic</div>
+              <div class="setup-desc">Binaural 7.1→estéreo nativo — activar en Propiedades del dispositivo</div>
+              <div class="setup-status-text" id="setup-text-windows_sonic">Activar manualmente</div>
+            </div>
+            <div class="setup-actions">
+              <button class="btn btn-green" onclick="installDep('windows_sonic')">ABRIR PANEL</button>
             </div>
           </div>
 
@@ -618,8 +617,8 @@
             <span style="color:var(--yellow)">VB-Cable 7.1</span> →
             <span style="color:var(--green)">Voicemeeter</span> →
             <span style="color:var(--green)">EqualizerAPO</span> →
-            <span style="color:var(--yellow)">warzone_enhancer.txt</span> (nuestra app) →
-            <span style="color:var(--green)">HeSuVi</span> (7.1 → binaural) →
+            <span style="color:var(--yellow)">WarzoneAE\</span> (5 stages: base→spatial→gun→pasos→limiter) →
+            <span style="color:var(--green)">Windows Sonic</span> (7.1 → binaural) →
             <span style="color:var(--textdim)">Audífonos</span>
           </div>
           <div class="btn-row">
@@ -631,6 +630,17 @@
 
       <!-- ═══════════════════════ SETTINGS PAGE ═══════════════════ -->
       <div class="page" id="page-settings">
+
+        <div class="panel">
+          <div class="panel-title">DIAGNÓSTICO APO</div>
+          <p style="font-size:10px;color:var(--textdim);font-family:'Share Tech Mono',monospace;letter-spacing:1px;margin-bottom:12px;">
+            Verifica que el archivo correcto esté cargado en EqualizerAPO y que los DLLs estén instalados.
+          </p>
+          <div class="btn-row">
+            <button class="btn btn-green" onclick="runDiagnostics()">DIAGNOSTICAR</button>
+          </div>
+          <pre id="diagOutput" style="display:none; margin-top:12px; padding:12px; background:var(--bg0); border:1px solid var(--border); font-size:9px; font-family:'Share Tech Mono',monospace; color:var(--text); white-space:pre-wrap; word-break:break-all; max-height:400px; overflow-y:auto;"></pre>
+        </div>
 
         <div class="panel">
           <div class="panel-title">VERSIÓN</div>
@@ -862,7 +872,7 @@ function updateChain(sw) {
     apo: sw.apo,
     voicemeeter: sw.voicemeeter,
     vb_cable: sw.vb_cable,
-    hesuvi: sw.hesuvi,
+    reajs: sw.reajs,
     reaplugs: sw.reaplugs,
   };
   for (const [key, detected] of Object.entries(items)) {
@@ -922,6 +932,46 @@ async function deleteProfile(name) {
 }
 
 // ─── Settings ───────────────────────────────────────────────────────────────
+async function runDiagnostics() {
+  const out = document.getElementById('diagOutput');
+  out.style.display = 'block';
+  out.textContent = 'Analizando...';
+
+  const d = await api('get_diagnostics');
+  if (!d) { out.textContent = 'Error: no se pudo conectar con la app'; return; }
+
+  let txt = '';
+  txt += '=== EQUALIZERAPO ===\n';
+  txt += 'APO Path:    ' + (d.apo_path || '❌ NO ENCONTRADO') + '\n';
+  txt += 'Config Dir:  ' + (d.config_dir || '❌ NO ENCONTRADO') + '\n\n';
+
+  txt += '=== DLLS (REAPLUGS) ===\n';
+  txt += 'reajs.dll:   ' + (d.reajs_found    ? '✓ encontrado' : '❌ NO ENCONTRADO — Instala ReaPlugs') + '\n';
+  txt += 'reaxcomp:    ' + (d.reaxcomp_found ? '✓ encontrado' : '❌ NO ENCONTRADO — Instala ReaPlugs') + '\n';
+  txt += 'reacomp:     ' + (d.reacomp_found  ? '✓ encontrado' : '❌ NO ENCONTRADO — Instala ReaPlugs') + '\n\n';
+
+  txt += '=== config.txt DE APO ===\n';
+  if (d.config_txt) {
+    txt += d.config_txt + '\n';
+  } else {
+    txt += '❌ config.txt no encontrado\n';
+  }
+
+  txt += '\n=== ARCHIVOS WarzoneAE\\ ===\n';
+  if (d.stage_files && Object.keys(d.stage_files).length > 0) {
+    for (const [fname, content] of Object.entries(d.stage_files)) {
+      const status = content ? '✓' : '❌ NO ENCONTRADO';
+      txt += `\n--- ${fname} ${status} ---\n`;
+      if (content) txt += content + '\n';
+    }
+  } else {
+    txt += '❌ WarzoneAE\\ vacía — presiona APLICAR en la app\n';
+  }
+
+  out.textContent = txt;
+  log('Diagnóstico completado', 'ok');
+}
+
 async function checkUpdates() {
   const el = document.getElementById('updateResult');
   el.className = 'update-result';
@@ -1088,7 +1138,7 @@ async function init() {
     }
 
     // Software chain log
-    const sw = ['voicemeeter', 'vb_cable', 'hesuvi', 'reaplugs'];
+    const sw = ['voicemeeter', 'vb_cable', 'reajs', 'reaplugs'];
     const detected = sw.filter(s => status[s]);
     if (detected.length > 0) {
       log('Software: ' + detected.join(', '), 'ok');
@@ -1106,7 +1156,7 @@ async function init() {
   }
 
   // Auto-navigate to Setup if critical deps missing
-  if (status && (!status.apo?.installed || !status.hesuvi?.installed || !status.reaplugs?.installed || !status.vb_cable?.installed || !status.voicemeeter?.installed)) {
+  if (status && (!status.apo || !status.reaplugs || !status.vb_cable || !status.voicemeeter)) {
     navigate('setup');
     log('Faltan dependencias — ve a SETUP para instalar', 'warn');
   }

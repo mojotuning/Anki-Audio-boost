@@ -4,7 +4,7 @@ a = Analysis(
     ['app.py'],
     pathex=[],
     binaries=[],
-    datas=[('index.html', '.'), ('presets.py', '.'), ('apo_engine.py', '.')],
+    datas=[('index.html', '.'), ('presets.py', '.'), ('apo_engine.py', '.'), ('attachments', 'attachments')],
     hiddenimports=['pystray', 'PIL', 'certifi'],
     hookspath=[],
     hooksconfig={},

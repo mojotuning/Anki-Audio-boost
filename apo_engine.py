@@ -284,9 +284,10 @@ class APOEngine:
         # Replace existing block if present
         if _BLOCK_START in content and _BLOCK_END in content:
             import re as _re
+            _block = block  # captura local para el lambda
             content = _re.sub(
                 rf"{_re.escape(_BLOCK_START)}.*?{_re.escape(_BLOCK_END)}\n?",
-                block,
+                lambda m: _block,
                 content,
                 flags=_re.DOTALL,
             )

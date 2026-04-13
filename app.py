@@ -305,7 +305,7 @@ class Api:
         """Abre la página de descarga manual de una dependencia."""
         import webbrowser
         pages = {
-            'vb_cable':      'https://vb-audio.com/Cable/',
+            'vb_cable':      'https://vb-audio.com/Cable/#DownloadSection',
             'voicemeeter':   'https://vb-audio.com/Voicemeeter/',
             'apo':           'https://sourceforge.net/projects/equalizerapo/',
             'reaplugs':      'https://www.reaper.fm/reaplugs/',

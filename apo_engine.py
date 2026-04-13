@@ -33,15 +33,15 @@ class APOEngine:
     def __init__(self):
         self.apo_path: Path | None = self._find_apo()
         self.config_dir: Path | None = self.apo_path / "config" if self.apo_path else None
+        self.enabled = False
+        self.active_preset: str = "warzone"
+        self.params: dict = dict(PRESETS["warzone"]["params"])
+        self._load_state()
 
     @property
     def our_dir(self) -> Path | None:
         """Ruta a la subcarpeta WarzoneAE dentro del config de APO."""
         return self.config_dir / _OUR_SUBDIR if self.config_dir else None
-        self.enabled = False
-        self.active_preset: str = "warzone"
-        self.params: dict = dict(PRESETS["warzone"]["params"])
-        self._load_state()
 
     # ─── Detección de APO ─────────────────────────────────────────────────
 
@@ -102,14 +102,41 @@ class APOEngine:
                     result["voicemeeter"] = True
                     break
 
-        # VB-Cable
-        for sub in (r"SOFTWARE\VB-Audio\Cable",
-                    r"SOFTWARE\WOW6432Node\VB-Audio\Cable"):
+        # VB-Cable / Hi-Fi Cable (busca cualquier variante de VB-Audio cable)
+        for sub in (
+            r"SOFTWARE\VB-Audio\Cable",
+            r"SOFTWARE\WOW6432Node\VB-Audio\Cable",
+            r"SOFTWARE\VB-Audio\HIFI-CABLE",
+            r"SOFTWARE\WOW6432Node\VB-Audio\HIFI-CABLE",
+        ):
             try:
                 k = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, sub)
                 winreg.CloseKey(k)
                 result["vb_cable"] = True
                 break
+            except OSError:
+                pass
+        if not result["vb_cable"]:
+            # Fallback: buscar driver instalado por nombre de dispositivo en MMDevices
+            _mmdev = r"SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render"
+            try:
+                rk = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _mmdev)
+                idx = 0
+                while not result["vb_cable"]:
+                    try:
+                        sk_name = winreg.EnumKey(rk, idx)
+                        props = winreg.OpenKey(rk, sk_name + r"\Properties")
+                        try:
+                            name_val, _ = winreg.QueryValueEx(props, "{a45c254e-df1c-4efd-8020-67d146a850e0},2")
+                            if name_val and ('cable' in name_val.lower() or 'hifi' in name_val.lower() or 'hi-fi' in name_val.lower()):
+                                result["vb_cable"] = True
+                        except OSError:
+                            pass
+                        winreg.CloseKey(props)
+                    except OSError:
+                        break
+                    idx += 1
+                winreg.CloseKey(rk)
             except OSError:
                 pass
 

@@ -170,18 +170,19 @@ void WarzoneProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     p.masterGainDb = apvts.getRawParameterValue ("master_gain_db")->load();
     audioProcessor.notifyParamsChanged (p);
 
-    // ── Mix mono para analisis: L + R normalizados ──────────────────────────
+    // ── Mix mono para analisis: TODOS los canales excepto LFE (ch 3) ──────────
+    // CRITICO: usar solo L+R significa que los pasos del enemigo en surround
+    // (SL SR BL BR) jamas llegan al clasificador. El modelo nunca los escucha.
     monoAnalysisBuf.setSize (1, numSamples, false, false, true);
     monoAnalysisBuf.clear();
-
-    if (numCh >= 2)
     {
-        monoAnalysisBuf.addFrom (0, 0, buffer, 0, 0, numSamples, 0.5f); // L
-        monoAnalysisBuf.addFrom (0, 0, buffer, 1, 0, numSamples, 0.5f); // R
-    }
-    else
-    {
-        monoAnalysisBuf.addFrom (0, 0, buffer, 0, 0, numSamples, 1.0f);
+        int analysisChs = 0;
+        for (int ch = 0; ch < numCh; ++ch)
+            if (ch != 3) ++analysisChs;  // saltar LFE
+        const float w = analysisChs > 0 ? 1.0f / float (analysisChs) : 1.0f;
+        for (int ch = 0; ch < numCh; ++ch)
+            if (ch != 3)
+                monoAnalysisBuf.addFrom (0, 0, buffer, ch, 0, numSamples, w);
     }
 
     // ── Clasificacion ───────────────────────────────────────────────────────

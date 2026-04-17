@@ -117,10 +117,9 @@ public:
 
         // ── Calcular ganancias objetivo por canal segun clase ──────────────────
 
-        // Canales frontales: L R C (ch 0,1,2)
+        // Duck disparo propio: solo canales frontales L R C.
+        // Tus disparos SIEMPRE son frontales.
         float frontTarget = 1.0f;
-
-        // Duck por disparo propio: threshold 30%.
         if (probs.own_gun > 0.30f)
         {
             float duckGain = juce::Decibels::decibelsToGain (params.gunDuckDb);
@@ -128,25 +127,35 @@ public:
             frontTarget = 1.0f + blend * (duckGain - 1.0f);
         }
 
-        // Boost enemy_gun: threshold bajo (15%) porque el modelo raramente supera 50%
-        // en gameplay real. +5dB para que se escuche claramente.
-        // Solo aplica si NO se esta duckeando por disparo propio.
-        if (probs.own_gun < 0.20f && probs.enemy_gun > 0.15f)
+        // Boost disparo enemigo: TODOS los canales (enemigo puede estar en cualquier lado).
+        // No condicionar a own_gun < 20% — duck y boost son ortogonales:
+        // si disparas Y te disparan, el duck de frontales ya distingue.
+        if (probs.enemy_gun > 0.15f)
         {
             float boostGain = juce::Decibels::decibelsToGain (5.0f);
             float blend     = juce::jlimit (0.0f, 1.0f, (probs.enemy_gun - 0.15f) / 0.85f);
-            frontTarget = 1.0f + blend * (boostGain - 1.0f);
+            float boost     = 1.0f + blend * (boostGain - 1.0f);
+            // Solo sube frontales si no hay duck activo
+            if (probs.own_gun <= 0.30f)
+                frontTarget = juce::jmax (frontTarget, boost);
         }
 
-        // Canales surround — boost de pasos SOLO si no estamos disparando.
-        // El modelo no distingue pasos propios de enemigos — si el usuario
-        // dispara (own_gun > 20%) es probable que los pasos sean suyos.
+        // Boost pasos SOLO en canales surround (ch 4-15).
+        // Separacion espacial: tus pasos siempre son frontales (L/R).
+        // Al boostear solo surround, magnificas pasos enemigos sin amplificar los tuyos.
         float surroundTarget = 1.0f;
-        if (probs.footstep > 0.30f && probs.own_gun < 0.20f)
+        if (probs.footstep > 0.30f)
         {
             float boostGain = juce::Decibels::decibelsToGain (params.footBoostDb);
             float blend     = juce::jlimit (0.0f, 1.0f, (probs.footstep - 0.30f) / 0.70f);
             surroundTarget = 1.0f + blend * (boostGain - 1.0f);
+        }
+        // Enemy gun boost en surround tambien
+        if (probs.enemy_gun > 0.15f)
+        {
+            float boostGain = juce::Decibels::decibelsToGain (5.0f);
+            float blend     = juce::jlimit (0.0f, 1.0f, (probs.enemy_gun - 0.15f) / 0.85f);
+            surroundTarget  = juce::jmax (surroundTarget, 1.0f + blend * (boostGain - 1.0f));
         }
 
         // Ganancia maestra
@@ -187,11 +196,10 @@ public:
 
             bool isSurround = (ch >= 4);
 
-            // FOOT peaking EQ: todos los canales (pasos enemigos pueden venir de cualquier
-            // lado), pero SOLO si no estamos disparando (own_gun < 20%).
-            // El modelo incluye pasos propios en la clase footstep — si el usuario
-            // dispara, es probable que los pasos detectados sean suyos.
-            if (probs.footstep > 0.30f && probs.own_gun < 0.20f)
+            // FOOT peaking EQ: SOLO canales surround (ch >= 4).
+            // Separacion espacial: tus pasos son frontales, los del enemigo son surround.
+            // Si aplicaramos el EQ en frontales, magnificariamos tus propios pasos.
+            if (isSurround && probs.footstep > 0.30f)
             {
                 float wet = juce::jlimit (0.0f, 1.0f, (probs.footstep - 0.30f) / 0.70f);
                 // Banda 1: 1.8kHz — pasos cercanos

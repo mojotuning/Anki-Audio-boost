@@ -226,16 +226,31 @@ static ClassProbs runInference(
 }
 
 // ── Pipe helpers ──────────────────────────────────────────────────────────────
+// Lectura completa — ReadFile en pipe de bytes puede devolver menos de lo pedido
 static bool pipeRead(HANDLE pipe, void* buf, DWORD bytes)
 {
-    DWORD got = 0;
-    return ReadFile(pipe, buf, bytes, &got, nullptr) && got == bytes;
+    DWORD total = 0;
+    while (total < bytes)
+    {
+        DWORD got = 0;
+        if (!ReadFile(pipe, static_cast<char*>(buf) + total, bytes - total, &got, nullptr) || got == 0)
+            return false;
+        total += got;
+    }
+    return true;
 }
 
 static bool pipeWrite(HANDLE pipe, const void* buf, DWORD bytes)
 {
-    DWORD written = 0;
-    return WriteFile(pipe, buf, bytes, &written, nullptr) && written == bytes;
+    DWORD total = 0;
+    while (total < bytes)
+    {
+        DWORD written = 0;
+        if (!WriteFile(pipe, static_cast<const char*>(buf) + total, bytes - total, &written, nullptr) || written == 0)
+            return false;
+        total += written;
+    }
+    return true;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -339,8 +354,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmdLine, int)
             try
             {
                 p = runInference(*session, filterbank, hannWindow, audio);
+                char logbuf[128];
+                std::snprintf(logbuf, sizeof(logbuf),
+                    "Inferencia OK: own=%.2f enemy=%.2f foot=%.2f streak=%.2f",
+                    p.own_gun, p.enemy_gun, p.footstep, p.streak);
+                hlog(logbuf);
             }
-            catch (...) {}
+            catch (...) { hlog("EXCEPCION en runInference"); }
 
             float result[4] = { p.own_gun, p.enemy_gun, p.footstep, p.streak };
             if (!pipeWrite(pipe, result, sizeof(result)))

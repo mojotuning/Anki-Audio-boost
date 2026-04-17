@@ -215,15 +215,29 @@ private:
                     localBuf = _inferBuf;
                 }
 
+                vlog ("bg: enviando audio al helper");
                 const uint32_t n = CLIP_SAMPLES;
                 DWORD written = 0;
                 if (! WriteFile (_pipe, &n, sizeof (n), &written, nullptr) ||
-                    ! WriteFile (_pipe, localBuf.data(), n * sizeof (float), &written, nullptr))
+                    written != sizeof (n))
                 {
-                    vlog ("bg: WriteFile FAILED — helper desconectado");
-                    _connected.store (false);
-                    break;
+                    vlog ("bg: WriteFile header FAILED");
+                    _connected.store (false); break;
                 }
+                DWORD totalWritten = 0;
+                const DWORD dataBytes = n * sizeof (float);
+                const char* ptr = reinterpret_cast<const char*> (localBuf.data());
+                while (totalWritten < dataBytes)
+                {
+                    DWORD w = 0;
+                    if (! WriteFile (_pipe, ptr + totalWritten, dataBytes - totalWritten, &w, nullptr) || w == 0)
+                    {
+                        vlog ("bg: WriteFile data FAILED");
+                        _connected.store (false); break;
+                    }
+                    totalWritten += w;
+                }
+                if (! _connected.load()) break;
 
                 float result[4] = {};
                 DWORD got = 0;

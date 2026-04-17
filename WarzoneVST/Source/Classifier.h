@@ -62,48 +62,58 @@ public:
     {
         if (_connected.load()) return true;
 
-        vlog ("loadModel: iniciando WarzoneHelper.exe");
-        const std::wstring dllDir    = getDllDir();
-        const std::wstring helperExe = dllDir + L"WarzoneHelper.exe";
-
-        vlog (("helper: " + std::string (helperExe.begin(), helperExe.end())).c_str());
-
-        STARTUPINFOW si = {};
-        si.cb           = sizeof (si);
-        si.dwFlags      = STARTF_USESHOWWINDOW;
-        si.wShowWindow  = SW_HIDE;
-        PROCESS_INFORMATION pi = {};
-
-        if (! CreateProcessW (helperExe.c_str(), nullptr, nullptr, nullptr,
-                              FALSE, CREATE_NO_WINDOW, nullptr,
-                              dllDir.c_str(), &si, &pi))
-        {
-            _lastError = "CreateProcess FAILED (error " + std::to_string (GetLastError()) + ")";
-            vlog (_lastError.c_str());
-            return false;
-        }
-        CloseHandle (pi.hThread);
-        _helperProc = pi.hProcess;
-
-        vlog ("helper lanzado, conectando al pipe...");
+        vlog ("loadModel: buscando helper existente o lanzando uno nuevo");
         const char* PIPE_NAME = "\\\\.\\pipe\\WarzoneAudioClassifier";
-        for (int attempt = 0; attempt < 25; ++attempt)
+
+        // ── Intentar conectar a un helper ya corriendo ────────────────────────
+        // APO puede cargar el plugin varias veces (un por endpoint). Solo el primero
+        // lanza el helper; los demas se conectan al pipe ya existente.
+        _pipe = CreateFileA (PIPE_NAME, GENERIC_READ | GENERIC_WRITE,
+                             0, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (_pipe == INVALID_HANDLE_VALUE)
         {
-            _pipe = CreateFileA (PIPE_NAME, GENERIC_READ | GENERIC_WRITE,
-                                 0, nullptr, OPEN_EXISTING, 0, nullptr);
-            if (_pipe != INVALID_HANDLE_VALUE) break;
-            const DWORD err = GetLastError();
-            if (err != ERROR_FILE_NOT_FOUND && err != ERROR_PIPE_BUSY)
+            // No hay helper aun — lanzar uno nuevo
+            const std::wstring dllDir    = getDllDir();
+            const std::wstring helperExe = dllDir + L"WarzoneHelper.exe";
+            vlog (("helper: " + std::string (helperExe.begin(), helperExe.end())).c_str());
+
+            STARTUPINFOW si = {};
+            si.cb           = sizeof (si);
+            si.dwFlags      = STARTF_USESHOWWINDOW;
+            si.wShowWindow  = SW_HIDE;
+            PROCESS_INFORMATION pi = {};
+
+            if (! CreateProcessW (helperExe.c_str(), nullptr, nullptr, nullptr,
+                                  FALSE, CREATE_NO_WINDOW, nullptr,
+                                  dllDir.c_str(), &si, &pi))
             {
-                _lastError = "CreateFile pipe FAILED (error " + std::to_string (err) + ")";
+                _lastError = "CreateProcess FAILED (error " + std::to_string (GetLastError()) + ")";
                 vlog (_lastError.c_str());
                 return false;
             }
-            Sleep (100);
+            CloseHandle (pi.hThread);
+            _helperProc = pi.hProcess;
+            vlog ("helper lanzado, esperando pipe...");
+
+            // Reintentar conexion con backoff
+            for (int attempt = 0; attempt < 30; ++attempt)
+            {
+                Sleep (100);
+                _pipe = CreateFileA (PIPE_NAME, GENERIC_READ | GENERIC_WRITE,
+                                     0, nullptr, OPEN_EXISTING, 0, nullptr);
+                if (_pipe != INVALID_HANDLE_VALUE) break;
+                const DWORD err = GetLastError();
+                vlog (("intento " + std::to_string(attempt) + " err=" + std::to_string(err)).c_str());
+            }
         }
+        else
+        {
+            vlog ("conectado a helper ya existente");
+        }
+
         if (_pipe == INVALID_HANDLE_VALUE)
         {
-            _lastError = "Timeout: sin conexion al pipe";
+            _lastError = "Timeout: sin conexion al pipe (err=" + std::to_string (GetLastError()) + ")";
             vlog (_lastError.c_str());
             return false;
         }

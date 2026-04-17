@@ -279,21 +279,28 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmdLine, int)
     // Named pipe — acepta conexiones en bucle
     const char* PIPE_NAME = "\\\\.\\pipe\\WarzoneAudioClassifier";
 
+    // NULL DACL: cualquier proceso (incluido audiodg.exe PPL) puede conectar al pipe.
+    // Sin esto, audiodg.exe recibe ERROR_ACCESS_DENIED aunque sea el mismo usuario.
+    SECURITY_DESCRIPTOR sd;
+    InitializeSecurityDescriptor(&sd, SECURITY_DESCRIPTOR_REVISION);
+    SetSecurityDescriptorDacl(&sd, TRUE, NULL, FALSE);
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), &sd, FALSE };
+
     for (;;)
     {
         HANDLE pipe = CreateNamedPipeA(
             PIPE_NAME,
             PIPE_ACCESS_DUPLEX,
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-            1,                // max instancias
+            PIPE_UNLIMITED_INSTANCES,  // multiples instancias para multiples plugins
             PIPE_BUFSIZE,
             PIPE_BUFSIZE,
             PIPE_TIMEOUT_MS,
-            nullptr);
+            &sa);  // NULL DACL — acceso permitido a todo proceso
 
         if (pipe == INVALID_HANDLE_VALUE)
         {
-            hlog("ERROR: CreateNamedPipe fallo");
+            hlog(("ERROR: CreateNamedPipe fallo, code=" + std::to_string(GetLastError())).c_str());
             Sleep(1000);
             continue;
         }
